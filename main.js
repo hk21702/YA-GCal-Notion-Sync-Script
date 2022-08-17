@@ -360,6 +360,44 @@ function convertToNotionProperty(event, existing_tags = []) {
 }
 
 /**
+ * Return GCal event object based on page properties
+ */
+function convertToGCalEvent(page_result) {
+  let e_id = getPageProperty(
+    page_result.id,
+    page_result.properties[EVENT_ID_NOTION].id
+  );
+  e_id = e_id.results[0].rich_text.plain_text;
+
+  let e_summary = getPageProperty(
+    page_result.id,
+    page_result.properties[NAME_NOTION].id
+  );
+
+  e_summary = e_summary.results[0].rich_text.plain_text;
+
+  let e_description = getPageProperty(
+    page_result.id,
+    page_result.properties[DESCRIPTION_NOTION].id
+  );
+  e_description = e_description.results[0].rich_text.plain_text;
+
+  let dates = getPageProperty(
+    page_result.id,
+    page_result.properties[DATE_NOTION].id
+  );
+
+  let event = {
+    ...(e_id && { id: e_id }),
+    ...(e_summary && { summary: e_summary }),
+    ...(e_description && { description: e_description }),
+  };
+
+  //event["start"] = {"dateTime": };
+  //event["end"] = {"dateTime": };
+}
+
+/**
  * Parses Notion information from project properties
  */
 function parseNotionProperties() {
