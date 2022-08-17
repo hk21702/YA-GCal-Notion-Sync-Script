@@ -106,9 +106,9 @@ function parseEvents(events) {
         end = event.end.dateTime;
         console.log("%s (%s)", event.summary, start.toLocaleString());
       }
-      page_response = getPageFromEvent(event);
+      page_response = getPageId(event);
       if (page_response) {
-        console.log("Database event exists but requires update.");
+        console.log("Database page exists already. Attempting update.");
         updateDatabaseEntry(
           event,
           page_response.id,
@@ -206,21 +206,18 @@ function getPageProperty(page_id, property_id) {
 /**
  * Interact with notion API
  * @param {*} url
- * @param {*} payload
+ * @param {*} payload_dict
  * @param {*} method
  * @returns
  */
-function notionFetch(url, payload, method = "POST") {
+function notionFetch(url, payload_dict, method = "POST") {
   // UrlFetchApp is sync even if async is specified
   let options = {
     method: method,
     headers: getNotionHeaders(),
     muteHttpExceptions: true,
+    ...(payload_dict && { payload: JSON.stringify(payload_dict) }),
   };
-
-  if (payload) {
-    options["payload"] = JSON.stringify(payload);
-  }
 
   const response = UrlFetchApp.fetch(url, options);
 
