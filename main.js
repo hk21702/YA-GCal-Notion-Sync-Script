@@ -1,4 +1,3 @@
-const CALENDAR_IDS = {};
 
 const NAME_NOTION = "Name";
 const DATE_NOTION = "Date";
@@ -14,16 +13,18 @@ const LAST_SYNC_NOTION = "Last Sync";
 
 function main() {
   parseNotionProperties();
-  logSyncedEvents("", false);
+  for (const [c_name, c_id] of Object.entries(CALENDAR_IDS)) {
+    logSyncedEvents(c_name, c_id, false);
+  }
 }
 
-function logSyncedEvents(calendarId, fullSync) {
+function logSyncedEvents(calendar_name, calendar_id, fullSync) {
   let properties = PropertiesService.getUserProperties();
   let options = {
     maxResults: 20,
   };
   options.singleEvents = true; // allow recurring events
-  let syncToken = properties.getProperty("syncToken");
+  let syncToken = properties.getProperty("syncToken" + calendar_id);
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
   } else {
@@ -37,15 +38,15 @@ function logSyncedEvents(calendarId, fullSync) {
   do {
     try {
       options.pageToken = pageToken;
-      events = Calendar.Events.list(calendarId, options);
+      events = Calendar.Events.list(calendar_id, options);
     } catch (e) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
       if (
         e.message === "Sync token is no longer valid, a full sync is required."
       ) {
-        properties.deleteProperty("syncToken");
-        logSyncedEvents(calendarId, true);
+        properties.deleteProperty("syncToken" + calendar_id);
+        logSyncedEvents(calendar_id, true);
         return;
       } else {
         throw new Error(e.message);
@@ -53,16 +54,16 @@ function logSyncedEvents(calendarId, fullSync) {
     }
 
     if (events.items && events.items.length > 0) {
-      console.log("Parsing new events.");
+      console.log("Parsing new events. %s", calendar_name);
       parseEvents(events);
     } else {
-      console.log("No events found.");
+      console.log("No events found. %s", calendar_name);
     }
 
     pageToken = events.nextPageToken;
   } while (pageToken);
 
-  properties.setProperty("syncToken", events.nextSyncToken);
+  properties.setProperty("syncToken" + calendar_id, events.nextSyncToken);
 }
 
 /**
