@@ -1,7 +1,6 @@
-
 const NAME_NOTION = "Name";
 const DATE_NOTION = "Date";
-const TAG_NOTION = "Tag";
+const TAGS_NOTION = "Tags";
 const DESCRIPTION_NOTION = "Description";
 
 const DELETION_NOTION = "Cleanup";
@@ -10,6 +9,11 @@ const EVENT_ID_NOTION = "Event ID";
 const ON_GCAL_NOTION = "On GCal?";
 const CALENDAR_ID_NOTION = "Calendar ID";
 const LAST_SYNC_NOTION = "Last Sync";
+
+const ARCHIVE_CANCELLED_EVENTS = false;
+
+const CANCELLED_TAG_NAME = "Cancelled/Removed";
+const CANCELLED_TAG_COLOR = "red";
 
 function main() {
   parseNotionProperties();
@@ -24,7 +28,7 @@ function logSyncedEvents(calendar_name, calendar_id, fullSync) {
     maxResults: 20,
   };
   options.singleEvents = true; // allow recurring events
-  let syncToken = properties.getProperty("syncToken" + calendar_id);
+  let syncToken = properties.getProperty("syncToken");
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
   } else {
@@ -45,7 +49,7 @@ function logSyncedEvents(calendar_name, calendar_id, fullSync) {
       if (
         e.message === "Sync token is no longer valid, a full sync is required."
       ) {
-        properties.deleteProperty("syncToken" + calendar_id);
+        properties.deleteProperty("syncToken");
         logSyncedEvents(calendar_id, true);
         return;
       } else {
@@ -63,7 +67,7 @@ function logSyncedEvents(calendar_name, calendar_id, fullSync) {
     pageToken = events.nextPageToken;
   } while (pageToken);
 
-  properties.setProperty("syncToken" + calendar_id, events.nextSyncToken);
+  properties.setProperty("syncToken", events.nextSyncToken);
 }
 
 /**
@@ -75,6 +79,7 @@ function parseEvents(events) {
     if (event.status === "cancelled") {
       console.log("Event id %s was cancelled.", event.id);
       // Remove the event from the database
+      handleEventCancelled(event);
     } else {
       let start;
       let end;
@@ -94,10 +99,16 @@ function parseEvents(events) {
         end = event.end.dateTime;
         console.log("%s (%s)", event.summary, start.toLocaleString());
       }
-      existing_page = getExistingPage(event);
-      if (existing_page) {
+      page_response = getExistingPage(event);
+      if (page_response) {
         console.log("Database event exists but requires update.");
-        updateDatabaseEntry(event, existing_page);
+        updateDatabaseEntry(
+          event,
+          page_response.id,
+          typeof page_response.properties[TAGS_NOTION] === "undefined"
+            ? []
+            : x.options
+        );
       } else {
         console.log("Creating database entry.");
         createDatabaseEntry(event);
@@ -109,10 +120,14 @@ function parseEvents(events) {
 /**
  * Update database entry with new event information
  */
-function updateDatabaseEntry(event, page_id) {
+function updateDatabaseEntry(event, page_id, existing_tags = []) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
   let payload = {};
-  payload["properties"] = convertToNotionProperty(event);
+  payload["properties"] = convertToNotionProperty(event, existing_tags);
+
+  if (ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled") {
+    payload["archived"] = true;
+  }
 
   const responseData = notionFetch(url, payload, "PATCH");
 }
@@ -135,7 +150,7 @@ function createDatabaseEntry(event) {
 }
 
 /**
- * Determine if a page exists for the event, and the page needs to be updated. Returns page ID if found.
+ * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
  * @param {String} event
  * @returns {}
  */
@@ -153,7 +168,7 @@ function getExistingPage(event) {
     },
   };
 
-  const responseData = notionFetch(url, payload);
+  const responseData = notionFetch(url, payload, "POST");
 
   if (responseData.results.length > 0) {
     if (responseData.results.length > 1) {
@@ -163,7 +178,7 @@ function getExistingPage(event) {
       );
     }
 
-    return responseData.results[0].id;
+    return responseData.results[0];
   }
   return false;
 }
@@ -232,7 +247,7 @@ function getRelativeDate(daysOffset, hour) {
 /**
  * Return notion JSON property object based on event data
  */
-function convertToNotionProperty(event) {
+function convertToNotionProperty(event, existing_tags = []) {
   let property = {
     [LAST_SYNC_NOTION]: {
       type: "date",
@@ -293,46 +308,52 @@ function convertToNotionProperty(event) {
       ],
     };
   }
+  if (event.start) {
+    let start_time;
+    let end_time;
 
-  let start_time;
-  let end_time;
+    if (event.start.date) {
+      // All-day event.
+      start_time = event.start.date;
+      end_time = new Date(event.end.date);
+      end_time = end_time.toLocaleDateString("en-ca");
+      console.log(start_time, end_time);
+      // Offset by 1 day to get end date.
+    } else {
+      // Events that don't last all day; they have defined start times.
+      start_time = new Date(event.start.dateTime);
+      end_time = new Date(event.end.dateTime);
+    }
 
-  if (event.start.date) {
-    // All-day event.
-    start_time = event.start.date;
-    end_time = new Date(event.end.date);
-    end_time = end_time.toLocaleDateString("en-ca");
-    console.log(start_time, end_time);
-    // Offset by 1 day to get end date.
-  } else {
-    // Events that don't last all day; they have defined start times.
-    start_time = new Date(event.start.dateTime);
-    end_time = new Date(event.end.dateTime);
-  }
-
-  property[DATE_NOTION] = {
-    type: "date",
-    date: {
-      start: start_time,
-      end: end_time,
-    },
-  };
-
-  if (event.summary) {
-    property[NAME_NOTION] = {
-      type: "title",
-      title: [
-        {
-          type: "text",
-          text: {
-            content: event.summary,
-          },
-        },
-      ],
+    property[DATE_NOTION] = {
+      type: "date",
+      date: {
+        start: start_time,
+        end: end_time,
+      },
     };
+
+    if (event.summary) {
+      property[NAME_NOTION] = {
+        type: "title",
+        title: [
+          {
+            type: "text",
+            text: {
+              content: event.summary,
+            },
+          },
+        ],
+      };
+    }
   }
 
   if (event.status === "cancelled") {
+    property[TAGS_NOTION] = { multi_select: existing_tags };
+
+    property[TAGS_NOTION].multi_select.push({
+      name: CANCELLED_TAG_NAME,
+    });
   }
 
   return property;
@@ -359,4 +380,66 @@ function parseNotionProperties() {
     .getProperty("DATABASE_ID")
     .match(reURLInformation);
   DATABASE_ID = database_url[5].split("/")[1];
+}
+
+/**
+ * Get page ID of corresponding iCal id
+ */
+function getPageId(event) {
+  const url = getDatabaseURL();
+  const payload = {
+    filter: { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
+  };
+
+  const response_data = notionFetch(url, payload, "POST");
+
+  if (response_data.results.length > 0) {
+    if (response_data.results.length > 1) {
+      console.log(
+        "Found multiple entries with event id %s. This should not happen. Only considering index zero entry.",
+        event.id
+      );
+    }
+
+    return response_data.results[0].id;
+  }
+  return false;
+}
+
+/**
+ * Deals with event cancelled from gCal side
+ */
+function handleEventCancelled(event) {
+  const page_id = getPageId(event);
+
+  if (page_id) {
+    updateDatabaseEntry(event, page_id);
+  } else if (!ARCHIVE_CANCELLED_EVENTS) {
+    createDatabaseEntry(event);
+  } else {
+    console.log(
+      "Event %s not found in Notion database. Archive is enabled. Skipping.",
+      event.id
+    );
+  }
+}
+
+/** Update database structure */
+function updateDatabaseStructure() {
+  const url = getDatabaseURL();
+  const response = notionFetch(url, {}, "GET");
+
+  if (response.properties[TAGS_NOTION]) {
+    if (response.properties[TAGS_NOTION].type === "multi_select") {
+      let properties = response.properties;
+      properties[TAGS_NOTION].multi_select.options.append({
+        name: "Cancelled/Removed",
+        color: "red",
+      });
+    }
+  } else {
+    console.log("Database creation to be implemented");
+  }
+
+  notionFetch(url, payload, "POST");
 }
