@@ -113,7 +113,7 @@ function parseEvents(events) {
           page_response.id,
           typeof page_response.properties[TAGS_NOTION] === "undefined"
             ? []
-            : x.options
+            : page_response.properties[TAGS_NOTION].options
         );
       } else {
         console.log("Creating database entry.");
@@ -320,8 +320,9 @@ function convertToNotionProperty(event, existing_tags = []) {
       start_time = event.start.date;
       end_time = new Date(event.end.date);
       end_time = end_time.toLocaleDateString("en-ca");
-      console.log(start_time, end_time);
       // Offset by 1 day to get end date.
+
+      end_time = start_time === end_time ? null : end_time;
     } else {
       // Events that don't last all day; they have defined start times.
       start_time = new Date(event.start.dateTime);
