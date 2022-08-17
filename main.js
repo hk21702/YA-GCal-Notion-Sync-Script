@@ -10,6 +10,7 @@ const LAST_SYNC_NOTION = "Last Sync";
 
 const ARCHIVE_CANCELLED_EVENTS = false;
 const DELETE_CANCELLED_EVENTS = true;
+const MOVED_EVENTS_CANCELLED = true;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 
@@ -455,28 +456,7 @@ async function deleteCancelledEvents() {
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
-    let last_sync_date = getPageProperty(
-      result.id,
-      result.properties[LAST_SYNC_NOTION].id
-    );
-
-    let calendar_id = getPageProperty(
-      result.id,
-      result.properties[CALENDAR_ID_NOTION].id
-    );
-
-    calendar_id = calendar_id.select.name;
-
-    let event_id = getPageProperty(
-      result.id,
-      result.properties[EVENT_ID_NOTION].id
-    );
-
-    event_id = event_id.results[0].rich_text.plain_text;
-
-    if (
-      new Date(last_sync_date.date.start) < new Date(result.last_edited_time)
-    ) {
+    if (isPageUpdatedRecently(result)) {
       console.log("Deleting event %s from gCal", event_id);
 
       try {
@@ -488,4 +468,33 @@ async function deleteCancelledEvents() {
       }
     }
   }
+}
+
+/** Determine if a page result has been updated recently
+ * @param {Object} page_result - Page result from Notion database
+ * @return {Boolean} - True if page has been updated recently, false otherwise
+ * */
+function isPageUpdatedRecently(page_result) {
+  let last_sync_date = getPageProperty(
+    page_result.id,
+    page_result.properties[LAST_SYNC_NOTION].id
+  );
+
+  let calendar_id = getPageProperty(
+    page_result.id,
+    page_result.properties[CALENDAR_ID_NOTION].id
+  );
+
+  calendar_id = calendar_id.select.name;
+
+  let event_id = getPageProperty(
+    page_result.id,
+    page_result.properties[EVENT_ID_NOTION].id
+  );
+
+  event_id = event_id.results[0].rich_text.plain_text;
+
+  return (
+    new Date(last_sync_date.date.start) < new Date(page_result.last_edited_time)
+  );
 }
