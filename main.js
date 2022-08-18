@@ -54,19 +54,25 @@ function syncToGCal() {
       let calendar_name = getPageProperty(result, CALENDAR_NAME_NOTION).select;
       calendar_name = calendar_name ? calendar_name.name : null;
 
-      let event_id = flattenRichText(getPageProperty(result, EVENT_ID_NOTION));
+      let event_id = flattenRichText(
+        getPageProperty(result, EVENT_ID_NOTION).results
+      );
 
       if (CALENDAR_IDS[calendar_name] && calendar_id && event_id) {
         if (calendar_id === CALENDAR_IDS[calendar_name]) {
           // Update event in original calendar.
+          console.log("Updating event %s in %s.", event_id, calendar_name);
+          pushEventUpdate(event, event_id, calendar_id);
         } else {
           // Event being moved to a new calendar - delete from old calendar and then create using calendar name
           deleteEvent(event_id, calendar_id);
           createEvent(result, event, calendar_name);
+          console.log("Event %s moved to %s.", event_id, calendar_name);
         }
       } else if (CALENDAR_IDS[calendar_name]) {
         // attempt to create using calendar name
         createEvent(result, event, calendar_name);
+        console.log("Event created in %s.", calendar_name);
       } else {
         // Calendar name not found in dictonary. Abort.
         console.log(
@@ -361,8 +367,8 @@ function convertToNotionProperty(event, existing_tags = []) {
       end_time = start_time === end_time ? null : end_time;
     } else {
       // Events that don't last all day; they have defined start times.
-      start_time = new Date(event.start.dateTime);
-      end_time = new Date(event.end.dateTime);
+      start_time = event.start.dateTime;
+      end_time = event.end.dateTime;
     }
 
     properties[DATE_NOTION] = {
@@ -451,11 +457,15 @@ function convertToGCalEvent(page_result) {
   e_description = flattenRichText(e_description);
 
   let dates = getPageProperty(page_result, DATE_NOTION);
+  let all_day = dates.date.end === null;
+
   if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
     dates.date.start += "T00:00:00";
+    all_day = true;
   }
   if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
     dates.date.end += "T00:00:00";
+    all_day = true;
   }
 
   let event = {
@@ -464,6 +474,7 @@ function convertToGCalEvent(page_result) {
     ...(e_description && { description: e_description }),
     ...(dates.date.start && { start: dates.date.start }),
     ...(dates.date.end && { end: dates.date.end }),
+    all_day: all_day,
   };
 
   event.time_zone = dates.date.time_zone || DEFAULT_TZ;
@@ -634,6 +645,7 @@ function createEvent(page, event, calendar_name) {
     let properties = getBaseNotionProperties(new_event_id, calendar_name);
     pushDatabaseUpdate(properties, page.id);
   });
+  // TODO: Update page last_sync_date
 }
 
 /** Push event to Google calendar. Return event ID if successful
@@ -645,19 +657,60 @@ async function pushEvent(event, calendar_id) {
   event.summary = event.summary || "";
   event.description = event.description || "";
 
-  let options = [
-    event.summary,
-    new Date(event.start),
-    ...(event.end ? [new Date(event.end)] : []),
-    { description: event.description },
-  ];
+  let options = [event.summary, new Date(event.start)];
+
+  if (event.end && event.all_day) {
+    // add and shift
+    var shifted_date = new Date(event.end);
+    shifted_date.setDate(shifted_date.getDate() + 1);
+    options.push(shifted_date);
+  } else if (event.end) {
+    options.push(new Date(event.end));
+  }
+
+  options.push({ description: event.description });
 
   let calendar = CalendarApp.getCalendarById(calendar_id);
   try {
-    let new_event = await calendar.createAllDayEvent(...options);
+    let new_event = event.all_day
+      ? await calendar.createAllDayEvent(...options)
+      : await calendar.createEvent(...options);
+
     return new_event.getId().split("@")[0];
   } catch (e) {
     console.log("Failed to push new event to GCal. %s", e);
+    return false;
+  }
+}
+
+/** Update Google calendar event */
+async function pushEventUpdate(event, event_id, calendar_id) {
+  event.summary = event.summary || "";
+  event.description = event.description || "";
+
+  try {
+    let calendar = CalendarApp.getCalendarById(calendar_id);
+    let cal_event = await calendar.getEventById(event_id);
+
+    cal_event.setDescription(event.description);
+    cal_event.setTitle(event.summary);
+
+    if (event.end && event.all_day) {
+      // all day, multi day
+      var shifted_date = new Date(event.end);
+      shifted_date.setDate(shifted_date.getDate() + 1);
+      cal_event.setAllDayDate(new Date(event.start), shifted_date);
+    } else if (event.all_day) {
+      // all day, single day
+      cal_event.setAllDayDate(new Date(event.start));
+    } else {
+      // not all day
+      cal_event.setTime(new Date(event.start), new Date(event.end) || null);
+    }
+    // TODO: Update page last_sync_date
+    return true;
+  } catch (e) {
+    console.log("Failed to push event update to GCal. %s", e);
     return false;
   }
 }
