@@ -8,11 +8,13 @@ const CALENDAR_NAME_NOTION = "Calendar";
 const CALENDAR_ID_NOTION = "Calendar ID";
 const LAST_SYNC_NOTION = "Last Sync";
 
-const ARCHIVE_CANCELLED_EVENTS = false;
+const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const MOVED_EVENTS_CANCELLED = true;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
+
+const DEFAULT_TZ = "America/New_York";
 
 function main() {
   parseNotionProperties();
@@ -24,14 +26,63 @@ function main() {
   for (var c_name of Object.keys(CALENDAR_IDS)) {
     logSyncedEvents(c_name, false);
   }
+
+  syncToGCal();
+}
+
+/**
+ * Sync to google calendar from Notion
+ */
+function syncToGCal() {
+  // Get 100 pages in order of when they were last edited.
+  const url = getDatabaseURL();
+  const payload = {
+    sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+  };
+  const response_data = notionFetch(url, payload, "POST");
+
+  for (let i = 0; i < response_data.results.length; i++) {
+    let result = response_data.results[i];
+
+    if (isPageUpdatedRecently(result)) {
+      let event = convertToGCalEvent(result);
+
+      let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).select;
+      calendar_id = calendar_id ? calendar_id.name : null;
+
+      let calendar_name = getPageProperty(result, CALENDAR_NAME_NOTION).select;
+      calendar_name = calendar_name ? calendar_name.name : null;
+
+      let event_id = flattenRichText(getPageProperty(result, EVENT_ID_NOTION));
+
+      if (CALENDAR_IDS[calendar_name] && calendar_id && event_id) {
+        if (calendar_id === CALENDAR_IDS[calendar_name]) {
+          // Update event in original calendar.
+        } else {
+          // Event being moved to a new calendar - delete from old calendar and then create using calendar name
+          deleteEvent(event_id, calendar_id);
+          createEvent(result, event, calendar_name);
+        }
+      } else if (CALENDAR_IDS[calendar_name]) {
+        // attempt to create using calendar name
+        createEvent(result, event, calendar_name);
+      } else {
+        // Calendar name not found in dictonary. Abort.
+        console.log(
+          "Calendar name %s not found in dictionary. Aborting sync.",
+          calendar_name
+        );
+      }
+    }
+  }
 }
 
 function logSyncedEvents(c_name, fullSync) {
   let properties = PropertiesService.getUserProperties();
   let options = {
     maxResults: 20,
+    singleEvents: true, // allow recurring events
   };
-  options.singleEvents = true; // allow recurring events
   let syncToken = properties.getProperty("syncToken");
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
@@ -63,12 +114,12 @@ function logSyncedEvents(c_name, fullSync) {
 
     events["c_name"] = c_name;
 
-    if (events.items && events.items.length > 0) {
-      console.log("Parsing new events. %s", c_name);
-      parseEvents(events);
-    } else {
+    if (events.items && events.items.length === 0) {
       console.log("No events found. %s", c_name);
+      return;
     }
+    console.log("Parsing new events. %s", c_name);
+    parseEvents(events);
 
     pageToken = events.nextPageToken;
   } while (pageToken);
@@ -84,7 +135,7 @@ function parseEvents(events) {
     let event = events.items[i];
     event["c_name"] = events["c_name"];
     if (event.status === "cancelled") {
-      console.log("Event id %s was cancelled.", event.id);
+      console.log("Event %s was cancelled.", event.id);
       // Remove the event from the database
       handleEventCancelled(event);
     } else {
@@ -95,7 +146,8 @@ function parseEvents(events) {
         start = new Date(event.start.date);
         end = new Date(event.end.date);
         console.log(
-          "%s (%s -- %s)",
+          "Event %s %s (%s -- %s)",
+          event.id,
           event.summary,
           start.toLocaleDateString(),
           end.toLocaleDateString()
@@ -104,18 +156,22 @@ function parseEvents(events) {
         // Events that don't last all day; they have defined start times.
         start = event.start.dateTime;
         end = event.end.dateTime;
-        console.log("%s (%s)", event.summary, start.toLocaleString());
-      }
-      page_response = getPageId(event);
-      if (page_response) {
-        console.log("Database page exists already. Attempting update.");
-        updateDatabaseEntry(
-          event,
-          page_response.id,
-          typeof page_response.properties[TAGS_NOTION] === "undefined"
-            ? []
-            : page_response.properties[TAGS_NOTION].options
+        console.log(
+          "Event %s %s (%s)",
+          event.id,
+          event.summary,
+          start.toLocaleString()
         );
+      }
+      let page_response = getPageFromEvent(event);
+      if (page_response) {
+        console.log(
+          "Event %s database page %s exists already. Attempting update.",
+          event.id,
+          page_response.id
+        );
+        let tags = getPageProperty(page_response, TAGS_NOTION).select;
+        updateDatabaseEntry(event, page_response.id, tags ? tags : []);
       } else {
         console.log("Creating database entry.");
         createDatabaseEntry(event);
@@ -128,16 +184,23 @@ function parseEvents(events) {
  * Update database entry with new event information
  */
 function updateDatabaseEntry(event, page_id, existing_tags = []) {
+  let properties = convertToNotionProperty(event, existing_tags);
+  let archive = ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled";
+
+  pushDatabaseUpdate(properties, page_id, archive);
+}
+
+function pushDatabaseUpdate(properties, page_id, archive = false) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
   let payload = {};
-  payload["properties"] = convertToNotionProperty(event, existing_tags);
+  payload["properties"] = properties;
+  payload["archived"] = archive;
 
-  if (ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled") {
+  if (archive) {
     console.log("Archiving cancelled event.");
-    payload["archived"] = true;
   }
 
-  const responseData = notionFetch(url, payload, "PATCH");
+  const response_data = notionFetch(url, payload, "PATCH");
 }
 
 /**
@@ -154,7 +217,7 @@ function createDatabaseEntry(event) {
 
   payload["properties"] = convertToNotionProperty(event);
 
-  const responseData = notionFetch(url, payload, "POST");
+  const response_data = notionFetch(url, payload, "POST");
 }
 
 /**
@@ -176,17 +239,17 @@ function getPageFromEvent(event) {
     },
   };
 
-  const responseData = notionFetch(url, payload, "POST");
+  const response_data = notionFetch(url, payload, "POST");
 
-  if (responseData.results.length > 0) {
-    if (responseData.results.length > 1) {
+  if (response_data.results.length > 0) {
+    if (response_data.results.length > 1) {
       console.log(
         "Found multiple entries with event id %s. This should not happen. Only considering index zero entry.",
         event.id
       );
     }
 
-    return responseData.results[0];
+    return response_data.results[0];
   }
   return false;
 }
@@ -194,21 +257,22 @@ function getPageFromEvent(event) {
 /**
  * Retrieve notion page using page id
  * @param {String} page_id
- * @returns {}
+ * @returns {Object} request response object
  */
-function getPageProperty(page_id, property_id) {
+function getPageProperty(result, property) {
+  let page_id = result.id;
+  let property_id = result.properties[property].id;
   const url =
     "https://api.notion.com/v1/pages/" + page_id + "/properties/" + property_id;
-  const responseData = notionFetch(url, null, "GET");
-  return responseData;
+  return notionFetch(url, null, "GET");
 }
 
 /**
  * Interact with notion API
- * @param {*} url
- * @param {*} payload_dict
- * @param {*} method
- * @returns
+ * @param {String} url - url to send request to
+ * @param {Object} payload_dict - payload to send with request
+ * @param {String} method - method to use for request
+ * @returns {Object} request response object
  */
 function notionFetch(url, payload_dict, method = "POST") {
   // UrlFetchApp is sync even if async is specified
@@ -222,13 +286,13 @@ function notionFetch(url, payload_dict, method = "POST") {
   const response = UrlFetchApp.fetch(url, options);
 
   if (response.getResponseCode() === 200) {
-    const responseData = JSON.parse(response.getContentText());
-    if (responseData.length == 0) {
+    const response_data = JSON.parse(response.getContentText());
+    if (response_data.length == 0) {
       throw new Error(
         "No data returned from Notion API. Check your Notion token."
       );
     }
-    return responseData;
+    return response_data;
   } else if (response.getResponseCode() === 401) {
     throw new Error("Notion token is invalid.");
   } else {
@@ -269,36 +333,9 @@ function getRelativeDate(daysOffset, hour) {
  * Return notion JSON property object based on event data
  */
 function convertToNotionProperty(event, existing_tags = []) {
-  let property = {
-    [LAST_SYNC_NOTION]: {
-      type: "date",
-      date: {
-        start: new Date().toISOString(),
-      },
-    },
-    [EVENT_ID_NOTION]: {
-      type: "rich_text",
-      rich_text: [
-        {
-          text: {
-            content: event.id, //use ICal uid?
-          },
-        },
-      ],
-    },
-    [CALENDAR_ID_NOTION]: {
-      select: {
-        name: CALENDAR_IDS[event.c_name],
-      },
-    },
-    [CALENDAR_NAME_NOTION]: {
-      select: {
-        name: event.c_name,
-      },
-    },
-  };
+  let properties = getBaseNotionProperties(event.id, event.c_name);
 
-  property[DESCRIPTION_NOTION] = {
+  properties[DESCRIPTION_NOTION] = {
     type: "rich_text",
     rich_text: [
       {
@@ -327,7 +364,7 @@ function convertToNotionProperty(event, existing_tags = []) {
       end_time = new Date(event.end.dateTime);
     }
 
-    property[DATE_NOTION] = {
+    properties[DATE_NOTION] = {
       type: "date",
       date: {
         start: start_time,
@@ -335,7 +372,7 @@ function convertToNotionProperty(event, existing_tags = []) {
       },
     };
 
-    property[NAME_NOTION] = {
+    properties[NAME_NOTION] = {
       type: "title",
       title: [
         {
@@ -349,56 +386,92 @@ function convertToNotionProperty(event, existing_tags = []) {
   }
 
   if (event.status === "cancelled") {
-    property[TAGS_NOTION] = { multi_select: existing_tags };
+    properties[TAGS_NOTION] = { multi_select: existing_tags };
 
-    property[TAGS_NOTION].multi_select.push({
+    properties[TAGS_NOTION].multi_select.push({
       name: CANCELLED_TAG_NAME,
     });
   }
 
-  return property;
+  return properties;
+}
+
+/**
+ * Return base notion JSON property object including generation time
+ * @param {String} event_id - event id
+ * @param {String} calendar_name - calendar key name
+ * @returns {Object} - base notion property object
+ *  */
+function getBaseNotionProperties(event_id, calendar_name) {
+  return {
+    [LAST_SYNC_NOTION]: {
+      type: "date",
+      date: {
+        start: new Date().toISOString(),
+      },
+    },
+    [EVENT_ID_NOTION]: {
+      type: "rich_text",
+      rich_text: [
+        {
+          text: {
+            content: event_id, //use ICal uid?
+          },
+        },
+      ],
+    },
+    [CALENDAR_ID_NOTION]: {
+      select: {
+        name: CALENDAR_IDS[calendar_name],
+      },
+    },
+    [CALENDAR_NAME_NOTION]: {
+      select: {
+        name: calendar_name,
+      },
+    },
+  };
 }
 
 /**
  * Return GCal event object based on page properties
+ * @param {Object} page_result - Notion page result object
+ * @returns {Object} - GCal event object
  */
 function convertToGCalEvent(page_result) {
-  let e_id = getPageProperty(
-    page_result.id,
-    page_result.properties[EVENT_ID_NOTION].id
-  );
-  e_id = e_id.results[0].rich_text.plain_text;
+  let e_id = getPageProperty(page_result, EVENT_ID_NOTION).results;
+  e_id = flattenRichText(e_id);
 
-  let e_summary = getPageProperty(
-    page_result.id,
-    page_result.properties[NAME_NOTION].id
-  );
+  let e_summary = getPageProperty(page_result, NAME_NOTION).results;
 
-  e_summary = e_summary.results[0].rich_text.plain_text;
+  e_summary = e_summary[0].title.plain_text;
 
-  let e_description = getPageProperty(
-    page_result.id,
-    page_result.properties[DESCRIPTION_NOTION].id
-  );
-  e_description = e_description.results[0].rich_text.plain_text;
+  let e_description = getPageProperty(page_result, DESCRIPTION_NOTION).results;
+  e_description = flattenRichText(e_description);
 
-  let dates = getPageProperty(
-    page_result.id,
-    page_result.properties[DATE_NOTION].id
-  );
+  let dates = getPageProperty(page_result, DATE_NOTION);
+  if (dates.date.start && dates.date.start.search(/a-z/i) == -1) {
+    dates.date.start += "T00:00:00";
+  }
+  if (dates.date.end && dates.date.end.search(/a-z/i) == -1) {
+    dates.date.end += "T00:00:00";
+  }
 
   let event = {
     ...(e_id && { id: e_id }),
     ...(e_summary && { summary: e_summary }),
     ...(e_description && { description: e_description }),
+    ...(dates.date.start && { start: dates.date.start }),
+    ...(dates.date.end && { end: dates.date.end }),
   };
 
-  //event["start"] = {"dateTime": };
-  //event["end"] = {"dateTime": };
+  event.time_zone = dates.date.time_zone || DEFAULT_TZ;
+
+  return event;
 }
 
 /**
- * Parses Notion information from project properties
+ * Parses Notion information from project properties and declares them into global variables
  */
 function parseNotionProperties() {
   let properties = PropertiesService.getScriptProperties();
@@ -421,7 +494,8 @@ function parseNotionProperties() {
 }
 
 /**
- * Get page ID of corresponding iCal id
+ * Get notion page ID of corresponding gCal event. Returns null if no page found.
+ * @param {Object} event - gCal event object
  */
 function getPageId(event) {
   const url = getDatabaseURL();
@@ -434,14 +508,14 @@ function getPageId(event) {
   if (response_data.results.length > 0) {
     if (response_data.results.length > 1) {
       console.log(
-        "Found multiple entries with event id %s. This should not happen. Only considering index zero entry.",
+        "Found multiple entries with event id %s. This should not happen. Only processing index zero entry.",
         event.id
       );
     }
 
     return response_data.results[0].id;
   }
-  return false;
+  return null;
 }
 
 /**
@@ -466,7 +540,7 @@ function updateDatabaseStructure() {
     if (response.properties[TAGS_NOTION].type === "multi_select") {
       let properties = response.properties;
       properties[TAGS_NOTION].multi_select.options.append({
-        name: "Cancelled/Removed",
+        name: CANCELLED_TAG_NAME,
         color: "red",
       });
     }
@@ -492,16 +566,31 @@ async function deleteCancelledEvents() {
     let result = response_data.results[i];
 
     if (isPageUpdatedRecently(result)) {
-      console.log("Deleting event %s from gCal", event_id);
+      let event_id = getPageProperty(result, EVENT_ID_NOTION).results;
+      let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).results;
 
-      try {
-        let calendar = CalendarApp.getCalendarById(calendar_id);
-        await calendar.getEventById(event_id).deleteEvent();
-      } catch (e) {
-        console.log(e);
-        continue;
-      }
+      event_id = flattenRichText(event_id);
+      calendar_id = flattenRichText(calendar_id);
+
+      deleteEvent(event_id, calendar_id);
     }
+  }
+}
+
+/** Delete event from Google calendar
+ * @param {String} event_id - Event id to delete
+ * @param {String} calendar_id - Calendar id to delete event from
+ * @returns {Boolean} - True if event was deleted, false if not
+ */
+async function deleteEvent(event_id, calendar_id) {
+  console.log("Deleting event %s from gCal %s", event_id, calendar_id);
+  try {
+    let calendar = CalendarApp.getCalendarById(calendar_id);
+    await calendar.getEventById(event_id).deleteEvent();
+    return true;
+  } catch (e) {
+    console.log(e);
+    return false;
   }
 }
 
@@ -510,26 +599,65 @@ async function deleteCancelledEvents() {
  * @return {Boolean} - True if page has been updated recently, false otherwise
  * */
 function isPageUpdatedRecently(page_result) {
-  let last_sync_date = getPageProperty(
-    page_result.id,
-    page_result.properties[LAST_SYNC_NOTION].id
-  );
+  let last_sync_date = getPageProperty(page_result, LAST_SYNC_NOTION);
 
-  let calendar_id = getPageProperty(
-    page_result.id,
-    page_result.properties[CALENDAR_ID_NOTION].id
-  );
+  last_sync_date = last_sync_date.date ? last_sync_date.date.start : 0;
 
-  calendar_id = calendar_id.select.name;
+  return new Date(last_sync_date) < new Date(page_result.last_edited_time);
+}
 
-  let event_id = getPageProperty(
-    page_result.id,
-    page_result.properties[EVENT_ID_NOTION].id
-  );
+/**
+ * Flattens rich text properties into a singular string.
+ * @param {Object} rich_text - Rich text property to flatten
+ * @return {String} - Flattened rich text
+ * */
+function flattenRichText(rich_text_result) {
+  let plain_text = "";
+  for (let i = 0; i < rich_text_result.length; i++) {
+    plain_text += rich_text_result[i].rich_text.plain_text;
+  }
+  return plain_text;
+}
 
-  event_id = event_id.results[0].rich_text.plain_text;
+/** Create Google calendar event
+ * @param {Object} page - Page result object from Notion database
+ * @param {Object} event - Event object for gCal
+ * @param {string} calendar_name - Name of calendar to create event in
+ */
+function createEvent(page, event, calendar_name) {
+  pushEvent(event, CALENDAR_IDS[calendar_name]).then((new_event_id) => {
+    if (!new_event_id) {
+      console.log("Event %s not created in gCal.", event);
+      return;
+    }
 
-  return (
-    new Date(last_sync_date.date.start) < new Date(page_result.last_edited_time)
-  );
+    let properties = getBaseNotionProperties(new_event_id, calendar_name);
+    pushDatabaseUpdate(properties, page.id);
+  });
+}
+
+/** Push event to Google calendar. Return event ID if successful
+ * @param {Object} event - Event object for gCal
+ * @param {string} calendar_id - ID of calendar to push event to
+ * @return {string} - Event ID if successful, false otherwise
+ */
+async function pushEvent(event, calendar_id) {
+  event.summary = event.summary || "";
+  event.description = event.description || "";
+
+  let options = [
+    event.summary,
+    new Date(event.start),
+    ...(event.end ? [new Date(event.end)] : []),
+    { description: event.description },
+  ];
+
+  let calendar = CalendarApp.getCalendarById(calendar_id);
+  try {
+    let new_event = await calendar.createAllDayEvent(...options);
+    return new_event.getId().split("@")[0];
+  } catch (e) {
+    console.log("Failed to push new event to GCal. %s", e);
+    return false;
+  }
 }
