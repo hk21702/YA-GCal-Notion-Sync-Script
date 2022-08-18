@@ -34,6 +34,7 @@ function main() {
  * Sync to google calendar from Notion
  */
 function syncToGCal() {
+  console.log("Syncing to Google Calendar.");
   // Get 100 pages in order of when they were last edited.
   const url = getDatabaseURL();
   const payload = {
@@ -450,10 +451,10 @@ function convertToGCalEvent(page_result) {
   e_description = flattenRichText(e_description);
 
   let dates = getPageProperty(page_result, DATE_NOTION);
-  if (dates.date.start && dates.date.start.search(/a-z/i) == -1) {
+  if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
     dates.date.start += "T00:00:00";
   }
-  if (dates.date.end && dates.date.end.search(/a-z/i) == -1) {
+  if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
     dates.date.end += "T00:00:00";
   }
 
@@ -567,10 +568,9 @@ async function deleteCancelledEvents() {
 
     if (isPageUpdatedRecently(result)) {
       let event_id = getPageProperty(result, EVENT_ID_NOTION).results;
-      let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).results;
+      let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).select.name;
 
       event_id = flattenRichText(event_id);
-      calendar_id = flattenRichText(calendar_id);
 
       deleteEvent(event_id, calendar_id);
     }
@@ -627,7 +627,7 @@ function flattenRichText(rich_text_result) {
 function createEvent(page, event, calendar_name) {
   pushEvent(event, CALENDAR_IDS[calendar_name]).then((new_event_id) => {
     if (!new_event_id) {
-      console.log("Event %s not created in gCal.", event);
+      console.log("Event %s not created in gCal.", event.summary);
       return;
     }
 
