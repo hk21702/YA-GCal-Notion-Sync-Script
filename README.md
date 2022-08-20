@@ -9,6 +9,7 @@ A script to sync events between Google calendar and a Notion database.
   - Trigger the scripts automatically with triggers
     - Time Intervals
     - GCal Updates
+  - Logs that are saved and can be looked at later
 - Sync both from Google Calendar, and from Notion
   - Creation
   - Updates
@@ -76,6 +77,14 @@ By default, the script will only sync with your primary google calendar. If you 
 #### Triggers
 
 Triggers is an Apps Script feature that allows for the script to be ran automatically based on a variety of events. Triggers can be set to activate at a certain time, every x amount of time, whenever your Google Calendar is updated, and more!
+
+Click the **clock** icon on the left side of the screen to get to the triggers page. Then add a trigger with settings of your choosing. ***The function to be run should be set to ```main```***
+
+You can have multiple triggers. It is recommended that you have one based on a time interval of your choosing, and another based on your Google calendars being updated. 
+
+To set up the calendar update trigger, set the **event source** to be ```From calendar``` and fill out the **owner email field**.
+
+To set up interval based triggers, set the **event source** to ```Time-driven```. Pick anything for the type of time based trigger though it should probably be set to something like every 15 minutes.
 
 ## Known limitations/Bugs
 
