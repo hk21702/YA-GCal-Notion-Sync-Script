@@ -494,9 +494,9 @@ function convertToGCalEvent(page_result) {
 
   let dates = getPageProperty(page_result, DATE_NOTION);
 
-  if (dates.date) {
-    let all_day = dates.date.end === null;
+  let all_day = dates.date.end === null;
 
+  if (dates.date) {
     if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
       dates.date.start += "T00:00:00";
       all_day = true;
