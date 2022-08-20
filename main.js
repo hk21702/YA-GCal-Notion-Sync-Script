@@ -166,7 +166,7 @@ function parseEvents(events, ignored_eIds) {
   for (let i = 0; i < events.items.length; i++) {
     let event = events.items[i];
     event["c_name"] = events["c_name"];
-    if (event.id in ignored_eIds) {
+    if (ignored_eIds.includes(event.id)) {
       console.log("Ignoring event %s", event.id);
     } else if (event.status === "cancelled") {
       console.log("Event %s was cancelled.", event.id);
@@ -510,6 +510,7 @@ function convertToGCalEvent(page_result) {
       default_end.setMinutes(default_end.getMinutes() + 30);
       dates.date.end = default_end.toISOString();
     } else if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
+      // TODO: shift by 1 date
       dates.date.end += "T00:00:00";
       all_day = true;
     }
@@ -710,7 +711,8 @@ function createEvent(page, event, calendar_name) {
   }
 
   let properties = getBaseNotionProperties(new_event_id, calendar_name);
-  return pushDatabaseUpdate(properties, page.id);
+  pushDatabaseUpdate(properties, page.id);
+  return new_event_id;
 }
 
 /** Update Google calendar event */
@@ -728,7 +730,7 @@ function pushEventUpdate(event, event_id, calendar_id) {
     if (event.end && event.all_day) {
       // all day, multi day
       var shifted_date = new Date(event.end);
-      shifted_date.setDate(shifted_date.getDate() + 1);
+      shifted_date.setDate(shifted_date.getDate() + 2);
       cal_event.setAllDayDates(new Date(event.start), shifted_date);
     } else if (event.all_day) {
       // all day, single day
