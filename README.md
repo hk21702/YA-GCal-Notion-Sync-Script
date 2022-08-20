@@ -26,7 +26,7 @@ A script to sync events between Google calendar and a Notion database.
 
 ### Notion API/Integration Setup
 
-TODO. For now just look up how to do this. There are lots of tutorials out there and its fast and simple. Remember, NEVER share your integration key! You will it later in the setup process though.
+TODO. For now just look up how to do this. There are lots of tutorials out there and its fast and simple. Remember, NEVER share your integration key! You will need it later in the setup process though.
 
 ### Database
 
