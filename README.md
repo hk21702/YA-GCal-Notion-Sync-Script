@@ -32,7 +32,7 @@ TODO. For now just look up how to do this. There are lots of tutorials out there
 
 Set up your database with the following properties. You may add additional properties or reorder them, but the ones shown are required.
 
-![Database Image](https://github.com/hk21702/Notion-Google-Cal-JS/blob/main/images/database.png?raw=true)
+![Database Image](https://github.com/hk21702/YA-GCal-Notion-Sync-Script/blob/main/images/database.png?raw=true)
 
 | Name  | Date | Tags         | Calendar | Description | Event ID | Calendar ID | Last Sync |
 | ----- | ---- | ------------ | -------- | ----------- | -------- | ----------- | --------- |
@@ -72,7 +72,7 @@ Click the **Save script properties** button once you're all done to save!
 
 Your end result should look something like this.
 
-![Script Keys Image](https://github.com/hk21702/Notion-Google-Cal-JS/blob/main/images/script_keys.png?raw=true)
+![Script Keys Image](https://github.com/hk21702/YA-GCal-Notion-Sync-Script/blob/main/images/script_keys.png?raw=true)
 
 #### Adding Calendars
 
