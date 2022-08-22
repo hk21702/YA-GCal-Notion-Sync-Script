@@ -302,10 +302,23 @@ function getPageFromEvent(event) {
  */
 function getPageProperty(result, property) {
   let page_id = result.id;
-  let property_id = result.properties[property].id;
-  const url =
-    "https://api.notion.com/v1/pages/" + page_id + "/properties/" + property_id;
-  return notionFetch(url, null, "GET");
+  try {
+    let property_id = result.properties[property].id;
+
+    const url =
+      "https://api.notion.com/v1/pages/" +
+      page_id +
+      "/properties/" +
+      property_id;
+    return notionFetch(url, null, "GET");
+  } catch (e) {
+    throw new Error(
+      "Error trying to get page property %s from page %s. Ensure that the database is setup correctly! EM: %s",
+      property,
+      page_id,
+      e.message
+    );
+  }
 }
 
 /**
