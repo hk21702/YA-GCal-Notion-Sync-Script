@@ -1,4 +1,4 @@
-# Two Way Notion Google Calendar Sync Script
+# Yet Another Two Way Notion-Google Calendar Sync Script
 
 A script to sync events between Google calendar and a Notion database.
 
