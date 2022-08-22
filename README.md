@@ -37,12 +37,14 @@ Set up your database with the following properties. You may add additional prope
 | Name  | Date | Tags         | Calendar | Description | Event ID | Calendar ID | Last Sync |
 | ----- | ---- | ------------ | -------- | ----------- | -------- | ----------- | --------- |
 | Title | Date | Multi-select | Select   | Text        | Text     | Select      | Date      |
+| ----- | ---- | ------------ | -------- | ----------- | -------- | ----------- | --------- |
 
 The listed property names are the default names. You may change them, but these modification needs to also be applied to the constants at the top of the script.
 
 Share your database with the Notion Integration you set up earlier!
 
 **_Do not touch the values under Event ID, Calendar ID, or Last Sync._**
+Name, Date, Tags, Calendar, Description can all have its values be modified by the user. Do not that the script expects that the Calendar selected matches what is defined as the calendar name (The dictionary key, not the value) in the CalendarIds file.
 
 If you'd like, add the Tag `Cancelled/Removed` to _Tags_ such that you may delete events from Notion. The color does not matter. This can also be changed to a different name if as long as you modify the global variable in the main script.
 
