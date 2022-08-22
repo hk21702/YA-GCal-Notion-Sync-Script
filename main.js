@@ -161,6 +161,8 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
 
 /**
  * Determine if gcal events need to be updated, removed, or added to the database
+ * @param {*} gcal_events Google calendar events
+ * @param {Array} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
   for (let i = 0; i < events.items.length; i++) {
@@ -216,6 +218,9 @@ function parseEvents(events, ignored_eIds) {
 
 /**
  * Update database entry with new event information
+ * @param {CalendarEvent} event Modified Google calendar event
+ * @param {String} page_id Page ID of database entry
+ * @param {String[]} existing_tags Existing tags of the page to keep.
  */
 function updateDatabaseEntry(event, page_id, existing_tags = []) {
   let properties = convertToNotionProperty(event, existing_tags);
@@ -228,7 +233,7 @@ function updateDatabaseEntry(event, page_id, existing_tags = []) {
  * @param {Object} properties
  * @param {String} page_id page id to update
  * @param {Boolean} archive whenever or not to archive the page
- * @returns request response object
+ * @returns {*} request response object
  */
 function pushDatabaseUpdate(properties, page_id, archive = false) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
@@ -245,6 +250,8 @@ function pushDatabaseUpdate(properties, page_id, archive = false) {
 
 /**
  * Create a new database entry for the event
+ * @param {CalendarEvent} event modified GCal event object
+ * @returns {*} request response object
  */
 function createDatabaseEntry(event) {
   const url = "https://api.notion.com/v1/pages";
@@ -385,8 +392,8 @@ function getRelativeDate(daysOffset, hour) {
 
 /**
  * Return notion JSON property object based on event data
- * @param {Object} event
- * @param {Array} existing_tags - existing tags to add to event
+ * @param {CalendarEvent} event modified GCal event object
+ * @param {String[]} existing_tags - existing tags to add to event
  * @returns {Object} notion property object
  */
 function convertToNotionProperty(event, existing_tags = []) {
@@ -523,7 +530,6 @@ function convertToGCalEvent(page_result) {
       default_end.setMinutes(default_end.getMinutes() + 30);
       dates.date.end = default_end.toISOString();
     } else if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
-      // TODO: shift by 1 date
       dates.date.end += "T00:00:00";
       all_day = true;
     }
@@ -561,7 +567,7 @@ function parseNotionProperties() {
 
 /**
  * Get notion page ID of corresponding gCal event. Returns null if no page found.
- * @param {Object} event - gCal event object
+ * @param {CalendarEvent} event - Modiffied gCal event object
  */
 function getPageId(event) {
   const url = getDatabaseURL();
@@ -586,6 +592,7 @@ function getPageId(event) {
 
 /**
  * Deals with event cancelled from gCal side
+ * @param {CalendarEvent} event - Modiffied gCal event object
  */
 function handleEventCancelled(event) {
   const page_id = getPageId(event);
@@ -664,7 +671,7 @@ function isPageUpdatedRecently(page_result) {
 
 /**
  * Flattens rich text properties into a singular string.
- * @param {Object} rich_text - Rich text property to flatten
+ * @param {Object} rich_text_result - Rich text property to flatten
  * @return {String} - Flattened rich text
  * */
 function flattenRichText(rich_text_result) {
@@ -678,8 +685,8 @@ function flattenRichText(rich_text_result) {
 /** Create event to Google calendar. Return event ID if successful
  * @param {Object} page - Page object from Notion database
  * @param {Object} event - Event object for gCal
- * @param {string} calendar_name - name of calendar to push event to
- * @return {string} - Event ID if successful, false otherwise
+ * @param {String} calendar_name - name of calendar to push event to
+ * @return {String} - Event ID if successful, false otherwise
  */
 function createEvent(page, event, calendar_name) {
   event.summary = event.summary || "";
@@ -721,7 +728,12 @@ function createEvent(page, event, calendar_name) {
   return new_event_id;
 }
 
-/** Update Google calendar event */
+/** Update Google calendar event
+ * @param {CalendarEvent} event - Modified event object for gCal
+ * @param {String} page_id - Page ID of Notion page to update
+ * @param {String} calendar_id - Calendar ID of calendar to update event from
+ * @return {Boolean} True if successful, false otherwise
+ */
 function pushEventUpdate(event, event_id, calendar_id) {
   event.summary = event.summary || "";
   event.description = event.description || "";
