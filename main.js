@@ -537,20 +537,13 @@ function parseNotionProperties() {
   let properties = PropertiesService.getScriptProperties();
   NOTION_TOKEN = properties.getProperty("NOTION_TOKEN");
 
-  let reURLInformation = new RegExp(
-    [
-      "^(https?:)//", // protocol
-      "(([^:/?#]*)(?::([0-9]+))?)", // host (hostname and port)
-      "(/{0,1}[^?#]*)", // pathname
-      "(\\?[^#]*|)", // search
-      "(#.*|)$", // hash
-    ].join("")
-  );
+  let reURLInformation =
+    /^(([^@:\/\s]+):\/?)?\/?(([^@:\/\s]+)(:([^@:\/\s]+))?@)?([^@:\/\s]+)(:(\d+))?(((\/\w+)*\/)([\w\-\.]+[^#?\s]*)?(.*)?(#[\w\-]+)?)?$/;
 
   let database_url = properties
     .getProperty("DATABASE_ID")
     .match(reURLInformation);
-  DATABASE_ID = database_url[5].split("/")[1];
+  DATABASE_ID = database_url[13];
 }
 
 /**
