@@ -54,6 +54,10 @@ Go to [Google Apps Scripts](https://script.google.com/home/start) and create a n
 
 Copy the contents of `main.js` and `calendarIds.js` from this Github repository into separate files within your project. Naming your file is not required but is recommended!
 
+#### Adding the Calendar Service
+
+In the editor view which you should still be in currently, click the plus button next to **Services**. Then, in the popup, set the identifier field to ```Calendar``` or just search for the Google Calendar service. Then go ahead and click **add** on the popup and the calendar service should be added to the project.
+
 #### Setting up your keys
 
 Go into your project settings within Apps Script by clicking the cogwheel icon on the left side of the screen.
@@ -85,6 +89,9 @@ You can have multiple triggers. It is recommended that you have one based on a t
 To set up the calendar update trigger, set the **event source** to be ```From calendar``` and fill out the **owner email field**.
 
 To set up interval based triggers, set the **event source** to ```Time-driven```. Pick anything for the type of time based trigger though it should probably be set to something like every 15 minutes.
+
+#### First Run
+Once you got to this point in the process, you should be all done with the setup! It is recommended that you manually trigger the script once though so you can give your script access to GCal. Go back to the main script by clicking the button on the left hand side that looks like ```< >``` labeled editor. Make sure that the script being shown is the big main one. Then, ensure that the drop down menu next to the Run and Debug buttons is set to ```main```. Then, you can click **Run** or **Debug** to run the script! On your first run, the script will ask you to give access to GCal. A popup should come up asking you to sign in, give access, and all that. Do as its told and allow the script to access GCal.
 
 ## Known limitations/Bugs
 
