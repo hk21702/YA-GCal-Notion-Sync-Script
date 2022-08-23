@@ -52,6 +52,14 @@ function syncToGCal() {
     if (isPageUpdatedRecently(result)) {
       let event = convertToGCalEvent(result);
 
+      if (!event) {
+        console.log(
+          "Skipping page %s because it is not in the correct format and or is missing required information.",
+          result.id
+        );
+        continue;
+      }
+
       let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).select;
       calendar_id = calendar_id ? calendar_id.name : null;
 
@@ -514,9 +522,8 @@ function convertToGCalEvent(page_result) {
 
   let dates = getPageProperty(page_result, DATE_NOTION);
 
-  let all_day = dates.date.end === null;
-
   if (dates.date) {
+    let all_day = dates.date.end === null;
     if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
       dates.date.start += "T00:00:00";
       all_day = true;
@@ -533,20 +540,19 @@ function convertToGCalEvent(page_result) {
       dates.date.end += "T00:00:00";
       all_day = true;
     }
+    let event = {
+      ...(e_id && { id: e_id }),
+      ...(e_summary && { summary: e_summary }),
+      ...(e_description && { description: e_description }),
+      ...(dates.date.start && { start: dates.date.start }),
+      ...(dates.date.end && { end: dates.date.end }),
+      all_day: all_day,
+    };
+
+    return event;
   } else {
     return false;
   }
-
-  let event = {
-    ...(e_id && { id: e_id }),
-    ...(e_summary && { summary: e_summary }),
-    ...(e_description && { description: e_description }),
-    ...(dates.date.start && { start: dates.date.start }),
-    ...(dates.date.end && { end: dates.date.end }),
-    all_day: all_day,
-  };
-
-  return event;
 }
 
 /**
