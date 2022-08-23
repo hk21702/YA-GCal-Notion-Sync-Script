@@ -31,3 +31,4 @@ A script to sync events between Google calendar and a Notion database.
 - Will only check 100 most recently edited pages in database
   - Caused by Notion API limit
 - Rich text (bolding, italics, etc.) used in the description will be overwritten to plain text after syncing.
+- Doesn't seem to work with auto-generated calendars such as Birthdays. May be a limitation of GCal API. See #3
