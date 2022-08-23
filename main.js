@@ -112,10 +112,9 @@ function syncToGCal() {
 }
 /**
  * Syncs from google calendar to Notion
- * @param {*} c_name Calendar name
- * @param {*} fullSync Whenever or not to discard the old page token
- * @param {*} ignored_eIds Event IDs to not act on.
- * @returns
+ * @param {String} c_name Calendar name
+ * @param {Boolean} fullSync Whenever or not to discard the old page token
+ * @param {String[]} ignored_eIds Event IDs to not act on.
  */
 function syncFromGCal(c_name, fullSync, ignored_eIds) {
   let properties = PropertiesService.getUserProperties();
@@ -169,7 +168,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
 
 /**
  * Determine if gcal events need to be updated, removed, or added to the database
- * @param {*} gcal_events Google calendar events
+ * @param {CalendarEvent[]} events Google calendar events
  * @param {Array} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
@@ -277,7 +276,7 @@ function createDatabaseEntry(event) {
 
 /**
  * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
- * @param {Object} event
+ * @param {CalendarEvent} event
  * @returns {*} Page response if found.
  */
 function getPageFromEvent(event) {
