@@ -10,7 +10,6 @@ const LAST_SYNC_NOTION = "Last Sync";
 
 const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
-const MOVED_EVENTS_CANCELLED = true;
 const IGNORE_RECENTLY_PUSHED = true;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
@@ -33,7 +32,7 @@ function main() {
 
 /**
  * Sync to google calendar from Notion
- * @returns {Array} - Array of event IDs that were modified through event creation
+ * @returns {String[]} - Array of event IDs that were modified through event creation
  */
 function syncToGCal() {
   console.log("Syncing to Google Calendar.");
