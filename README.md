@@ -78,7 +78,9 @@ Your end result should look something like this.
 
 #### Adding Calendars
 
-By default, the script will only sync with your primary google calendar. If you wish to add more, or ignore the primary calendar, you will need to modify the calendarIds.js file. You will need to add the calendar's iCal ID as well as an arbitrary name you want to call it.
+By default, the script will only sync with your primary google calendar. If you wish to add more, or ignore the primary calendar, you will need to modify the calendarIds.js file. You will need to add the calendar's ID as well as an arbitrary name you want to call it.
+
+You can find you calendar ID by going to your calendar's settings, and going to the *Integrate Calendar* section. The ID is the one labeled *Calendar ID* and will look something like ```abcdefg1234@group.calendar.google.com```. Note that this process shouldn't be required for your primary calendar. By default, the calendarIds.js file is already setup to handle that by using the primary keyword.
 
 #### Triggers
 
