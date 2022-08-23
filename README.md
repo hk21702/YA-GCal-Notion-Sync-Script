@@ -37,7 +37,7 @@ Set up your database with the following properties. You may add additional prope
 | Name  | Date | Tags         | Calendar | Description | Event ID | Calendar ID | Last Sync |
 | ----- | ---- | ------------ | -------- | ----------- | -------- | ----------- | --------- |
 | Title | Date | Multi-select | Select   | Text        | Text     | Select      | Date      |
-| ----- | ---- | ------------ | -------- | ----------- | -------- | ----------- | --------- |
+| Editable | Editable | Editable | Editable with Restrictions | Editable | Do Not Edit | Do Not Edit | Do Not Edit |
 
 The listed property names are the default names. You may change them, but these modification needs to also be applied to the constants at the top of the script.
 
