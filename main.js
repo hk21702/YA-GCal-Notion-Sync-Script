@@ -13,6 +13,7 @@ const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
+const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 
 function main() {
   parseNotionProperties();
@@ -40,6 +41,12 @@ function syncToGCal() {
   const url = getDatabaseURL();
   const payload = {
     sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
+    filter: {
+      property: TAGS_NOTION,
+      multi_select: {
+        does_not_contain: IGNORE_SYNC_TAG_NAME,
+      },
+    },
   };
   const response_data = notionFetch(url, payload, "POST");
 
@@ -576,7 +583,17 @@ function parseNotionProperties() {
 function getPageId(event) {
   const url = getDatabaseURL();
   const payload = {
-    filter: { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
+    filter: {
+      and: [
+        { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
+        {
+          property: TAGS_NOTION,
+          multi_select: {
+            does_not_contain: IGNORE_SYNC_TAG_NAME,
+          },
+        },
+      ],
+    },
   };
 
   const response_data = notionFetch(url, payload, "POST");
@@ -614,7 +631,10 @@ function deleteCancelledEvents() {
   const payload = {
     filter: {
       property: TAGS_NOTION,
-      multi_select: { contains: CANCELLED_TAG_NAME },
+      multi_select: {
+        contains: CANCELLED_TAG_NAME,
+        does_not_contain: IGNORE_SYNC_TAG_NAME,
+      },
     },
   };
   const response_data = notionFetch(url, payload, "POST");
