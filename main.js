@@ -37,7 +37,7 @@ function main() {
  * @returns {String[]} - Array of event IDs that were modified through event creation
  */
 function syncToGCal() {
-  console.log("Syncing to Google Calendar.");
+  console.log("[+GC] Syncing to Google Calendar.");
   // Get 100 pages in order of when they were last edited.
   const url = getDatabaseURL();
   const payload = {
@@ -61,7 +61,7 @@ function syncToGCal() {
 
       if (!event) {
         console.log(
-          "Skipping page %s because it is not in the correct format and or is missing required information.",
+          "[+GC] Skipping page %s because it is not in the correct format and or is missing required information.",
           result.id
         );
         continue;
@@ -80,7 +80,11 @@ function syncToGCal() {
       if (CALENDAR_IDS[calendar_name] && calendar_id && event_id) {
         if (calendar_id === CALENDAR_IDS[calendar_name]) {
           // Update event in original calendar.
-          console.log("Updating event %s in %s.", event_id, calendar_name);
+          console.log(
+            "[+GC] Updating event %s in %s.",
+            event_id,
+            calendar_name
+          );
           pushEventUpdate(event, event_id, calendar_id);
         } else {
           // Event being moved to a new calendar - delete from old calendar and then create using calendar name
@@ -89,11 +93,11 @@ function syncToGCal() {
             deleteEvent(event_id, calendar_id) &&
             (modified_eId = createEvent(result, event, calendar_name))
           ) {
-            console.log("Event %s moved to %s.", event_id, calendar_name);
+            console.log("[+GC] Event %s moved to %s.", event_id, calendar_name);
             modified_eIds.push(modified_eId);
           } else {
             console.log(
-              "Event %s failed to move to %s.",
+              "[+GC] Event %s failed to move to %s.",
               event_id,
               calendar_name
             );
@@ -103,13 +107,13 @@ function syncToGCal() {
         // attempt to create using calendar name
         let modified_eId;
         if ((modified_eId = createEvent(result, event, calendar_name))) {
-          console.log("Event created in %s.", calendar_name);
+          console.log("[+GC] Event created in %s.", calendar_name);
           modified_eIds.push(modified_eId);
         }
       } else {
         // Calendar name not found in dictonary. Abort.
         console.log(
-          "Calendar name %s not found in dictionary. Aborting sync.",
+          "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
           calendar_name
         );
       }
@@ -124,6 +128,7 @@ function syncToGCal() {
  * @param {String[]} ignored_eIds Event IDs to not act on.
  */
 function syncFromGCal(c_name, fullSync, ignored_eIds) {
+  console.log("[+ND] Syncing from Google Calendar: %s", c_name);
   let properties = PropertiesService.getUserProperties();
   let options = {
     maxResults: 20,
@@ -148,7 +153,8 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
       if (
-        e.message === "Sync token is no longer valid, a full sync is required."
+        e.message ===
+        "[+ND] Sync token is no longer valid, a full sync is required."
       ) {
         properties.deleteProperty("syncToken");
         syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
@@ -161,10 +167,10 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
     events["c_name"] = c_name;
 
     if (events.items && events.items.length === 0) {
-      console.log("No events found. %s", c_name);
+      console.log("[+ND] No events found. %s", c_name);
       return;
     }
-    console.log("Parsing new events. %s", c_name);
+    console.log("[+ND] Parsing new events. %s", c_name);
     parseEvents(events, ignored_eIds);
 
     pageToken = events.nextPageToken;
@@ -183,9 +189,9 @@ function parseEvents(events, ignored_eIds) {
     let event = events.items[i];
     event["c_name"] = events["c_name"];
     if (ignored_eIds.includes(event.id)) {
-      console.log("Ignoring event %s", event.id);
+      console.log("[+ND] Ignoring event %s", event.id);
     } else if (event.status === "cancelled") {
-      console.log("Event %s was cancelled.", event.id);
+      console.log("[+ND] Event %s was cancelled.", event.id);
       // Remove the event from the database
       handleEventCancelled(event);
     } else {
@@ -196,7 +202,7 @@ function parseEvents(events, ignored_eIds) {
         start = new Date(event.start.date);
         end = new Date(event.end.date);
         console.log(
-          "Event %s %s (%s -- %s)",
+          "[+ND] Event found %s %s (%s -- %s)",
           event.id,
           event.summary,
           start.toLocaleDateString(),
@@ -207,7 +213,7 @@ function parseEvents(events, ignored_eIds) {
         start = event.start.dateTime;
         end = event.end.dateTime;
         console.log(
-          "Event %s %s (%s)",
+          "[+ND] Event found %s %s (%s)",
           event.id,
           event.summary,
           start.toLocaleString()
@@ -216,14 +222,14 @@ function parseEvents(events, ignored_eIds) {
       let page_response = getPageFromEvent(event);
       if (page_response) {
         console.log(
-          "Event %s database page %s exists already. Attempting update.",
+          "[+ND] Event %s database page %s exists already. Attempting update.",
           event.id,
           page_response.id
         );
         let tags = getPageProperty(page_response, TAGS_NOTION).select;
         updateDatabaseEntry(event, page_response.id, tags ? tags : []);
       } else {
-        console.log("Creating database entry.");
+        console.log("[+ND] Creating database entry.");
         createDatabaseEntry(event);
       }
     }
@@ -628,6 +634,7 @@ function handleEventCancelled(event) {
 
 /** Delete events marked as cancelled in gcal */
 function deleteCancelledEvents() {
+  console.log("[-GCal] Deleting cancel tagged events from GCal");
   const url = getDatabaseURL();
   const payload = {
     filter: {
@@ -654,7 +661,7 @@ function deleteCancelledEvents() {
         deleteEvent(event_id, calendar_id);
       } catch (e) {
         if (e instanceof TypeError) {
-          console.log("Error. Page missing calendar id or event ID");
+          console.log("[-GCal] Error. Page missing calendar id or event ID");
         } else throw e;
       } finally {
         ARCHIVE_CANCELLED_EVENTS
