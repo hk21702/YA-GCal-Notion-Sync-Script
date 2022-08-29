@@ -341,10 +341,7 @@ function getPageProperty(result, property) {
     return notionFetch(url, null, "GET");
   } catch (e) {
     throw new Error(
-      "Error trying to get page property %s from page %s. Ensure that the database is setup correctly! EM: %s",
-      property,
-      page_id,
-      e.message
+      `Error trying to get page property ${property} from page ${page_id}. Ensure that the database is setup correctly! EM: ${e.message}`
     );
   }
 }
