@@ -1,6 +1,7 @@
 const NAME_NOTION = "Name";
 const DATE_NOTION = "Date";
 const TAGS_NOTION = "Tags";
+const LOCATION_NOTION = "Location";
 const DESCRIPTION_NOTION = "Description";
 
 const EVENT_ID_NOTION = "Event ID";
@@ -131,7 +132,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   console.log("[+ND] Syncing from Google Calendar: %s", c_name);
   let properties = PropertiesService.getUserProperties();
   let options = {
-    maxResults: 20,
+    maxResults: 50,
     singleEvents: true, // allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
@@ -430,6 +431,17 @@ function convertToNotionProperty(event, existing_tags = []) {
     ],
   };
 
+  properties[LOCATION_NOTION] = {
+    type: "rich_text",
+    rich_text: [
+      {
+        text: {
+          content: event.location ? event.location : "",
+        },
+      },
+    ],
+  };
+
   if (event.start) {
     let start_time;
     let end_time;
@@ -532,6 +544,9 @@ function convertToGCalEvent(page_result) {
   let e_description = getPageProperty(page_result, DESCRIPTION_NOTION).results;
   e_description = flattenRichText(e_description);
 
+  let e_location = getPageProperty(page_result, LOCATION_NOTION).results;
+  e_location = flattenRichText(e_location);
+
   let dates = getPageProperty(page_result, DATE_NOTION);
 
   if (dates.date) {
@@ -556,6 +571,7 @@ function convertToGCalEvent(page_result) {
       ...(e_id && { id: e_id }),
       ...(e_summary && { summary: e_summary }),
       ...(e_description && { description: e_description }),
+      ...(e_location && { location: e_location }),
       ...(dates.date.start && { start: dates.date.start }),
       ...(dates.date.end && { end: dates.date.end }),
       all_day: all_day,
