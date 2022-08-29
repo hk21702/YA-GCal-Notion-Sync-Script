@@ -11,6 +11,7 @@ const LAST_SYNC_NOTION = "Last Sync";
 const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
+const FULL_SYNC = false;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
@@ -27,7 +28,7 @@ function main() {
   modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : [];
 
   for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, false, modified_eIds);
+    syncFromGCal(c_name, FULL_SYNC, modified_eIds);
   }
 }
 
