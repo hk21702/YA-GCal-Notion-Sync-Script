@@ -132,7 +132,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   console.log("[+ND] Syncing from Google Calendar: %s", c_name);
   let properties = PropertiesService.getUserProperties();
   let options = {
-    maxResults: 50,
+    maxResults: 450,
     singleEvents: true, // allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
@@ -186,6 +186,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
  * @param {Array} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
+  let requests = [];
   for (let i = 0; i < events.items.length; i++) {
     let event = events.items[i];
     event["c_name"] = events["c_name"];
@@ -228,11 +229,27 @@ function parseEvents(events, ignored_eIds) {
           page_response.id
         );
         let tags = getPageProperty(page_response, TAGS_NOTION).select;
-        updateDatabaseEntry(event, page_response.id, tags ? tags : []);
+        requests.push(
+          updateDatabaseEntry(event, page_response.id, tags ? tags : [])
+        );
       } else {
         console.log("[+ND] Creating database entry.");
-        createDatabaseEntry(event);
+        requests.push(createDatabaseEntry(event));
       }
+    }
+  }
+  const responses = UrlFetchApp.fetchAll(requests);
+
+  for (let i = 0; i < responses.length; i++) {
+    let response = responses[i];
+    if (response.getResponseCode() === 401) {
+      throw new Error("[+ND] Notion token is invalid.");
+    } else if (response.getResponseCode() === 404) {
+      throw new Error("[+ND] Notion page not found.");
+    } else if (response.getResponseCode() === 403) {
+      throw new Error("[+ND] Notion page is private.");
+    } else if (response.getResponseCode() !== 200) {
+      throw new Error(response.getContentText());
     }
   }
 }
@@ -242,19 +259,20 @@ function parseEvents(events, ignored_eIds) {
  * @param {CalendarEvent} event Modified Google calendar event
  * @param {String} page_id Page ID of database entry
  * @param {String[]} existing_tags Existing tags of the page to keep.
+ * @returns {*} request object
  */
 function updateDatabaseEntry(event, page_id, existing_tags = []) {
   let properties = convertToNotionProperty(event, existing_tags);
   let archive = ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled";
 
-  pushDatabaseUpdate(properties, page_id, archive);
+  return pushDatabaseUpdate(properties, page_id, archive);
 }
 /**
  * Push update to notion database for page
  * @param {Object} properties
  * @param {String} page_id page id to update
  * @param {Boolean} archive whenever or not to archive the page
- * @returns {*} request response object
+ * @returns {*} request object
  */
 function pushDatabaseUpdate(properties, page_id, archive = false) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
@@ -266,13 +284,21 @@ function pushDatabaseUpdate(properties, page_id, archive = false) {
     console.log("Archiving cancelled event.");
   }
 
-  return notionFetch(url, payload, "PATCH");
+  let options = {
+    url: url,
+    method: "PATCH",
+    headers: getNotionHeaders(),
+    muteHttpExceptions: true,
+    payload: JSON.stringify(payload),
+  };
+
+  return options;
 }
 
 /**
  * Create a new database entry for the event
  * @param {CalendarEvent} event modified GCal event object
- * @returns {*} request response object
+ * @returns {*} request object
  */
 function createDatabaseEntry(event) {
   const url = "https://api.notion.com/v1/pages";
@@ -285,7 +311,14 @@ function createDatabaseEntry(event) {
 
   payload["properties"] = convertToNotionProperty(event);
 
-  return notionFetch(url, payload, "POST");
+  let options = {
+    url: url,
+    method: "POST",
+    headers: getNotionHeaders(),
+    muteHttpExceptions: true,
+    payload: JSON.stringify(payload),
+  };
+  return options;
 }
 
 /**
