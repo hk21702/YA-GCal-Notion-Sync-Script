@@ -265,16 +265,22 @@ function updateDatabaseEntry(event, page_id, existing_tags = []) {
   let properties = convertToNotionProperty(event, existing_tags);
   let archive = ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled";
 
-  return pushDatabaseUpdate(properties, page_id, archive);
+  return pushDatabaseUpdate(properties, page_id, archive, true);
 }
 /**
  * Push update to notion database for page
  * @param {Object} properties
  * @param {String} page_id page id to update
  * @param {Boolean} archive whenever or not to archive the page
- * @returns {*} request object
+ * @param {Boolean} multi whenever or not to use single fetch, or return options for fetchAll
+ * @returns {*} request object if multi, otherwise URL fetch response
  */
-function pushDatabaseUpdate(properties, page_id, archive = false) {
+function pushDatabaseUpdate(
+  properties,
+  page_id,
+  archive = false,
+  multi = false
+) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
   let payload = {};
   payload["properties"] = properties;
@@ -285,14 +291,18 @@ function pushDatabaseUpdate(properties, page_id, archive = false) {
   }
 
   let options = {
-    url: url,
     method: "PATCH",
     headers: getNotionHeaders(),
     muteHttpExceptions: true,
     payload: JSON.stringify(payload),
   };
 
-  return options;
+  if (multi) {
+    options["url"] = url;
+    return options;
+  }
+
+  return UrlFetchApp.fetch(url, options);
 }
 
 /**
