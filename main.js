@@ -68,38 +68,34 @@ function syncToGCal() {
         continue;
       }
 
-      let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).select;
+      let calendar_id = result.properties[CALENDAR_ID_NOTION].select;
       calendar_id = calendar_id ? calendar_id.name : null;
 
-      let calendar_name = getPageProperty(result, CALENDAR_NAME_NOTION).select;
+      let calendar_name = result.properties[CALENDAR_NAME_NOTION].select;
       calendar_name = calendar_name ? calendar_name.name : null;
 
-      let event_id = flattenRichText(
-        getPageProperty(result, EVENT_ID_NOTION).results
-      );
-
-      if (CALENDAR_IDS[calendar_name] && calendar_id && event_id) {
+      if (CALENDAR_IDS[calendar_name] && calendar_id && event.id) {
         if (calendar_id === CALENDAR_IDS[calendar_name]) {
           // Update event in original calendar.
           console.log(
             "[+GC] Updating event %s in %s.",
-            event_id,
+            event.id,
             calendar_name
           );
-          pushEventUpdate(event, event_id, calendar_id);
+          pushEventUpdate(event, event.id, calendar_id);
         } else {
           // Event being moved to a new calendar - delete from old calendar and then create using calendar name
           let modified_eId;
           if (
-            deleteEvent(event_id, calendar_id) &&
+            deleteEvent(event.id, calendar_id) &&
             (modified_eId = createEvent(result, event, calendar_name))
           ) {
-            console.log("[+GC] Event %s moved to %s.", event_id, calendar_name);
+            console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
             modified_eIds.push(modified_eId);
           } else {
             console.log(
               "[+GC] Event %s failed to move to %s.",
-              event_id,
+              event.id,
               calendar_name
             );
           }
@@ -132,7 +128,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   console.log("[+ND] Syncing from Google Calendar: %s", c_name);
   let properties = PropertiesService.getUserProperties();
   let options = {
-    maxResults: 450,
+    maxResults: 100,
     singleEvents: true, // allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
@@ -141,6 +137,8 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   } else {
     // Sync events up to thirty days in the past.
     options.timeMin = getRelativeDate(-30, 0).toISOString();
+    // Sync events up to one year in the future.
+    options.timeMax = getRelativeDate(365, 0).toISOString();
   }
 
   // Retrieve events one page at a time.
@@ -228,7 +226,7 @@ function parseEvents(events, ignored_eIds) {
           event.id,
           page_response.id
         );
-        let tags = getPageProperty(page_response, TAGS_NOTION).select;
+        let tags = page_response.properties[TAGS_NOTION].multi_select;
         requests.push(
           updateDatabaseEntry(event, page_response.id, tags ? tags : [])
         );
@@ -238,6 +236,8 @@ function parseEvents(events, ignored_eIds) {
       }
     }
   }
+  console.log("[+ND] Finished parsing page. Sending batch request.");
+
   const responses = UrlFetchApp.fetchAll(requests);
 
   for (let i = 0; i < responses.length; i++) {
@@ -259,13 +259,14 @@ function parseEvents(events, ignored_eIds) {
  * @param {CalendarEvent} event Modified Google calendar event
  * @param {String} page_id Page ID of database entry
  * @param {String[]} existing_tags Existing tags of the page to keep.
- * @returns {*} request object
+ * @param {Boolean} multi Whenever or not the update is meant for a multi-fetch
+ * @returns {*} request object if multi is true, fetch response if multi is false
  */
-function updateDatabaseEntry(event, page_id, existing_tags = []) {
+function updateDatabaseEntry(event, page_id, existing_tags = [], multi = true) {
   let properties = convertToNotionProperty(event, existing_tags);
   let archive = ARCHIVE_CANCELLED_EVENTS && event.status === "cancelled";
 
-  return pushDatabaseUpdate(properties, page_id, archive, true);
+  return pushDatabaseUpdate(properties, page_id, archive, multi);
 }
 /**
  * Push update to notion database for page
@@ -367,11 +368,13 @@ function getPageFromEvent(event) {
 
 /**
  * Retrieve notion page using page id
+ * @deprecated This is not used anymore due to Notion API change on Aug 31, 2022, but kept for reference.
  * @param {Object} result
  * @param {String} property - notion property name key
  * @returns {Object} request response object
  */
 function getPageProperty(result, property) {
+  console.log("Warning. Using deprecated function getPageProperty.");
   let page_id = result.id;
   try {
     let property_id = result.properties[property].id;
@@ -575,19 +578,19 @@ function getBaseNotionProperties(event_id, calendar_name) {
  * @returns {Object} - GCal event object Return False if required properties not found
  */
 function convertToGCalEvent(page_result) {
-  let e_id = getPageProperty(page_result, EVENT_ID_NOTION).results;
+  let e_id = page_result.properties[EVENT_ID_NOTION].rich_text;
   e_id = flattenRichText(e_id);
 
-  let e_summary = getPageProperty(page_result, NAME_NOTION).results;
-  e_summary = e_summary[0] ? e_summary[0].title.plain_text : "";
+  let e_summary = page_result.properties[NAME_NOTION].title;
+  e_summary = flattenRichText(e_summary);
 
-  let e_description = getPageProperty(page_result, DESCRIPTION_NOTION).results;
+  let e_description = page_result.properties[DESCRIPTION_NOTION].rich_text;
   e_description = flattenRichText(e_description);
 
-  let e_location = getPageProperty(page_result, LOCATION_NOTION).results;
+  let e_location = page_result.properties[LOCATION_NOTION].rich_text;
   e_location = flattenRichText(e_location);
 
-  let dates = getPageProperty(page_result, DATE_NOTION);
+  let dates = page_result.properties[DATE_NOTION];
 
   if (dates.date) {
     let all_day = dates.date.end === null;
@@ -682,7 +685,7 @@ function handleEventCancelled(event) {
   const page_id = getPageId(event);
 
   if (page_id) {
-    updateDatabaseEntry(event, page_id);
+    updateDatabaseEntry(event, page_id, [], false);
   } else {
     console.log("Event %s not found in Notion database. Skipping.", event.id);
   }
@@ -708,9 +711,8 @@ function deleteCancelledEvents() {
 
     if (isPageUpdatedRecently(result)) {
       try {
-        let event_id = getPageProperty(result, EVENT_ID_NOTION).results;
-        let calendar_id = getPageProperty(result, CALENDAR_ID_NOTION).select
-          .name;
+        let event_id = result.properties[EVENT_ID_NOTION].results;
+        let calendar_id = result.properties[CALENDAR_ID_NOTION].select.name;
 
         event_id = flattenRichText(event_id);
 
@@ -750,8 +752,7 @@ function deleteEvent(event_id, calendar_id) {
  * @return {Boolean} - True if page has been updated recently, false otherwise
  * */
 function isPageUpdatedRecently(page_result) {
-  let last_sync_date = getPageProperty(page_result, LAST_SYNC_NOTION);
-
+  let last_sync_date = page_result.properties[LAST_SYNC_NOTION];
   last_sync_date = last_sync_date.date ? last_sync_date.date.start : 0;
 
   return new Date(last_sync_date) < new Date(page_result.last_edited_time);
@@ -765,7 +766,9 @@ function isPageUpdatedRecently(page_result) {
 function flattenRichText(rich_text_result) {
   let plain_text = "";
   for (let i = 0; i < rich_text_result.length; i++) {
-    plain_text += rich_text_result[i].rich_text.plain_text;
+    plain_text += rich_text_result[i].rich_text
+      ? rich_text_result[i].rich_text.plain_text
+      : rich_text_result[i].plain_text;
   }
   return plain_text;
 }
