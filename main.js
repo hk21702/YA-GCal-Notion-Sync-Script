@@ -138,7 +138,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
     // Sync events up to thirty days in the past.
     options.timeMin = getRelativeDate(-30, 0).toISOString();
     // Sync events up to one year in the future.
-    options.timeMax = getRelativeDate(365, 0).toISOString();
+    //options.timeMax = getRelativeDate(365, 0).toISOString();
   }
 
   // Retrieve events one page at a time.
@@ -153,7 +153,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
       // if so, perform a full sync instead.
       if (
         e.message ===
-        "[+ND] Sync token is no longer valid, a full sync is required."
+        "Sync token is no longer valid, a full sync is required."
       ) {
         properties.deleteProperty("syncToken");
         syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
