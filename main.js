@@ -795,7 +795,7 @@ function createEvent(page, event, calendar_name) {
     options.push(new Date(event.end));
   }
 
-  options.push({ description: event.description });
+  options.push({ description: event.description, location: event.location });
 
   let calendar = CalendarApp.getCalendarById(calendar_id);
   try {
@@ -835,6 +835,7 @@ function pushEventUpdate(event, event_id, calendar_id) {
 
     cal_event.setDescription(event.description);
     cal_event.setTitle(event.summary);
+    cal_event.setLocation(event.location);
 
     if (event.end && event.all_day) {
       // all day, multi day
