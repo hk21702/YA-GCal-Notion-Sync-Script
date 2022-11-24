@@ -782,6 +782,7 @@ function flattenRichText(rich_text_result) {
 function createEvent(page, event, calendar_name) {
   event.summary = event.summary || "";
   event.description = event.description || "";
+  event.location = event.location || "";
 
   let calendar_id = CALENDAR_IDS[calendar_name];
   let options = [event.summary, new Date(event.start)];
@@ -828,6 +829,7 @@ function createEvent(page, event, calendar_name) {
 function pushEventUpdate(event, event_id, calendar_id) {
   event.summary = event.summary || "";
   event.description = event.description || "";
+  event.location = event.location || "";
 
   try {
     let calendar = CalendarApp.getCalendarById(calendar_id);
