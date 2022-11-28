@@ -711,7 +711,7 @@ function deleteCancelledEvents() {
 
     if (isPageUpdatedRecently(result)) {
       try {
-        let event_id = result.properties[EVENT_ID_NOTION].results;
+        let event_id = result.properties[EVENT_ID_NOTION].rich_text;
         let calendar_id = result.properties[CALENDAR_ID_NOTION].select.name;
 
         event_id = flattenRichText(event_id);
