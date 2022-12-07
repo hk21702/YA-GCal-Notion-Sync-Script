@@ -3,7 +3,7 @@
 # You can adjust the behavior by modifying this file.
 # For more information, see:
 # https://github.com/actions/stale
-name: Mark stale issues and pull requests
+name: Label Stale
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
     steps:
     - uses: actions/stale@v5
       env:
-        DEFAULT_DEBUG: true
+        DEFAULT_DEBUG: false
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         stale-issue-message: "This issue has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n@${author}, you can help out by closing this issue if the problem no longer exists, or adding more information."
@@ -41,4 +41,4 @@ jobs:
         close-issue-message: 'This issue has been closed automatically because it needs more information and has not had recent activity.'
         close-pr-message: 'This pull request has been closed automatically because it has not been labeled as a work-in-progress and has not had recent activity.'
         debug-only: ${{ inputs.dry-run || env.DEFAULT_DEBUG}}
-        days-before-stale: 0 # Temporary!
+        days-before-stale: 30
