@@ -7,6 +7,12 @@ name: Mark stale issues and pull requests
 
 on:
   workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Run in debug-only mode, meaning a dry-run where modifications to issues or pull requests will not actually apply."
+        required: true
+        type: boolean
+        default: true
   schedule:
   - cron: '39 22 * * *'
 
@@ -32,4 +38,5 @@ jobs:
         only-labels: 'awaiting-feedback,awaiting-answers,info-needed'
         close-issue-message: 'This issue has been closed automatically because it needs more information and has not had recent activity.'
         close-pr-message: 'This pull request has been closed automatically because it has not been labeled as a work-in-progress and has not had recent activity.'
-        debug-only: true
+        debug-only: ${{ inputs.dry-run }}
+        days-before-stale: 1 # Temporary!
