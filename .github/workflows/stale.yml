@@ -34,7 +34,7 @@ jobs:
         stale-pr-message: "This pull request has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n@${assignee}, you can help out by labeling this pull request as a work-in-progress if it is still being actively worked on, or closing it if not."
         stale-issue-label: 'stale'
         stale-pr-label: 'stale'
-        # Added input option        
+        # Additional input options -------------------------------------------------------------------------       
         exempt-issue-labels: 'awaiting-approval,work-in-progress'
         exempt-pr-labels: 'awaiting-approval,work-in-progress'
         any-of-labels: 'awaiting-feedback,awaiting-answers,info-needed'
