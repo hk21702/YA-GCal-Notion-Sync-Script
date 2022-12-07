@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       dry-run:
-        description: "Run in debug-only mode.\n\n A dry-run where modifications to issues or pull requests will not actually apply."
+        description: "Run in dry-run/debug-only mode."
         required: true
         type: boolean
         default: true
@@ -26,6 +26,8 @@ jobs:
 
     steps:
     - uses: actions/stale@v5
+      env:
+        DEFAULT_DEBUG: true
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         stale-issue-message: "This issue has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n@${author}, you can help out by closing this issue if the problem no longer exists, or adding more information."
@@ -35,8 +37,8 @@ jobs:
         # Added input option        
         exempt-issue-labels: 'awaiting-approval,work-in-progress'
         exempt-pr-labels: 'awaiting-approval,work-in-progress'
-        any-labels: 'awaiting-feedback,awaiting-answers,info-needed'
+        any-of-labels: 'awaiting-feedback,awaiting-answers,info-needed'
         close-issue-message: 'This issue has been closed automatically because it needs more information and has not had recent activity.'
         close-pr-message: 'This pull request has been closed automatically because it has not been labeled as a work-in-progress and has not had recent activity.'
-        debug-only: ${{ inputs.dry-run }}
-        days-before-stale: 1 # Temporary!
+        debug-only: ${{ inputs.dry-run || env.DEFAULT_DEBUG}}
+        days-before-stale: 0 # Temporary!
