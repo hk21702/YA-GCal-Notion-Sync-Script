@@ -13,7 +13,7 @@ const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
 
-@deprecated
+// Deprecated
 const FULL_SYNC = false;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
