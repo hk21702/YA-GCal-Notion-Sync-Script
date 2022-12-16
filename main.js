@@ -12,6 +12,8 @@ const LAST_SYNC_NOTION = "Last Sync";
 const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
+
+@deprecated
 const FULL_SYNC = false;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
@@ -33,7 +35,23 @@ function main() {
   modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : [];
 
   for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, FULL_SYNC, modified_eIds);
+    syncFromGCal(c_name, false, modified_eIds);
+  }
+}
+
+/**
+ * Syncs all calendars from google calendar to Notion using a full sync.
+ * 
+ * -- Will discard the old page token and generate a new one. --
+ * -- Will reset time min and time max to use the the current time as origin time --
+**/
+function fullSync() {
+  parseNotionProperties();
+
+  console.log("Preforming full sync. Page token, time min, and time max will be reset.");
+
+  for (var c_name of Object.keys(CALENDAR_IDS)) {
+    syncFromGCal(c_name, true, []);
   }
 }
 
