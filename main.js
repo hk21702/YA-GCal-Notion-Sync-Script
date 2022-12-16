@@ -12,6 +12,8 @@ const LAST_SYNC_NOTION = "Last Sync";
 const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
+
+// Deprecated
 const FULL_SYNC = false;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
@@ -30,16 +32,34 @@ function main() {
 
   let modified_eIds = syncToGCal();
 
-  modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : [];
+  modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : new Set();
 
   for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, FULL_SYNC, modified_eIds);
+    syncFromGCal(c_name, false, modified_eIds);
+  }
+}
+
+/**
+ * Syncs all calendars from google calendar to Notion using a full sync.
+ *
+ * -- Will discard the old page token and generate a new one. --
+ * -- Will reset time min and time max to use the the current time as origin time --
+ **/
+function fullSync() {
+  parseNotionProperties();
+
+  console.log(
+    "Preforming full sync. Page token, time min, and time max will be reset."
+  );
+
+  for (var c_name of Object.keys(CALENDAR_IDS)) {
+    syncFromGCal(c_name, true, []);
   }
 }
 
 /**
  * Sync to google calendar from Notion
- * @returns {String[]} - Array of event IDs that were modified through event creation
+ * @returns {Set[String]} - Array of event IDs that were modified through event creation
  */
 function syncToGCal() {
   console.log("[+GC] Syncing to Google Calendar.");
@@ -56,68 +76,64 @@ function syncToGCal() {
   };
   const response_data = notionFetch(url, payload, "POST");
 
-  let modified_eIds = [];
+  let modified_eIds = new Set();
 
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
-    if (isPageUpdatedRecently(result)) {
-      let event = convertToGCalEvent(result);
+    if (!isPageUpdatedRecently(result)) continue;
 
-      if (!event) {
-        console.log(
-          "[+GC] Skipping page %s because it is not in the correct format and or is missing required information.",
-          result.id
-        );
-        continue;
-      }
+    let event = convertToGCalEvent(result);
 
-      let calendar_id = result.properties[CALENDAR_ID_NOTION].select;
-      calendar_id = calendar_id ? calendar_id.name : null;
+    if (!event) {
+      console.log(
+        "[+GC] Skipping page %s because it is not in the correct format and or is missing required information.",
+        result.id
+      );
+      continue;
+    }
 
-      let calendar_name = result.properties[CALENDAR_NAME_NOTION].select;
-      calendar_name = calendar_name ? calendar_name.name : null;
+    let calendar_id = result.properties[CALENDAR_ID_NOTION].select;
+    calendar_id = calendar_id ? calendar_id.name : null;
 
-      if (CALENDAR_IDS[calendar_name] && calendar_id && event.id) {
-        if (calendar_id === CALENDAR_IDS[calendar_name]) {
-          // Update event in original calendar.
+    let calendar_name = result.properties[CALENDAR_NAME_NOTION].select;
+    calendar_name = calendar_name ? calendar_name.name : null;
+
+    if (CALENDAR_IDS[calendar_name] && calendar_id && event.id) {
+      if (calendar_id === CALENDAR_IDS[calendar_name]) {
+        // Update event in original calendar.
+        console.log("[+GC] Updating event %s in %s.", event.id, calendar_name);
+        pushEventUpdate(event, event.id, calendar_id);
+      } else {
+        // Event being moved to a new calendar - delete from old calendar and then create using calendar name
+        let modified_eId;
+        if (
+          deleteEvent(event.id, calendar_id) &&
+          (modified_eId = createEvent(result, event, calendar_name))
+        ) {
+          console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
+          modified_eIds.add(modified_eId);
+        } else {
           console.log(
-            "[+GC] Updating event %s in %s.",
+            "[+GC] Event %s failed to move to %s.",
             event.id,
             calendar_name
           );
-          pushEventUpdate(event, event.id, calendar_id);
-        } else {
-          // Event being moved to a new calendar - delete from old calendar and then create using calendar name
-          let modified_eId;
-          if (
-            deleteEvent(event.id, calendar_id) &&
-            (modified_eId = createEvent(result, event, calendar_name))
-          ) {
-            console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
-            modified_eIds.push(modified_eId);
-          } else {
-            console.log(
-              "[+GC] Event %s failed to move to %s.",
-              event.id,
-              calendar_name
-            );
-          }
         }
-      } else if (CALENDAR_IDS[calendar_name]) {
-        // attempt to create using calendar name
-        let modified_eId;
-        if ((modified_eId = createEvent(result, event, calendar_name))) {
-          console.log("[+GC] Event created in %s.", calendar_name);
-          modified_eIds.push(modified_eId);
-        }
-      } else {
-        // Calendar name not found in dictonary. Abort.
-        console.log(
-          "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
-          calendar_name
-        );
       }
+    } else if (CALENDAR_IDS[calendar_name]) {
+      // attempt to create using calendar name
+      let modified_eId;
+      if ((modified_eId = createEvent(result, event, calendar_name))) {
+        console.log("[+GC] Event created in %s.", calendar_name);
+        modified_eIds.add(modified_eId);
+      }
+    } else {
+      // Calendar name not found in dictonary. Abort.
+      console.log(
+        "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
+        calendar_name
+      );
     }
   }
   return modified_eIds;
@@ -127,7 +143,7 @@ function syncToGCal() {
  * Syncs from google calendar to Notion
  * @param {String} c_name Calendar name
  * @param {Boolean} fullSync Whenever or not to discard the old page token
- * @param {String[]} ignored_eIds Event IDs to not act on.
+ * @param {Set[String]} ignored_eIds Event IDs to not act on.
  */
 function syncFromGCal(c_name, fullSync, ignored_eIds) {
   console.log("[+ND] Syncing from Google Calendar: %s", c_name);
@@ -137,7 +153,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
     singleEvents: true, // allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
-  
+
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
   } else {
@@ -186,14 +202,14 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
 /**
  * Determine if gcal events need to be updated, removed, or added to the database
  * @param {CalendarEvent[]} events Google calendar events
- * @param {Array} ignored_eIds Event IDs to not act on.
+ * @param {Set[String]} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
   let requests = [];
   for (let i = 0; i < events.items.length; i++) {
     let event = events.items[i];
     event["c_name"] = events["c_name"];
-    if (ignored_eIds.includes(event.id)) {
+    if (ignored_eIds.has(event.id)) {
       console.log("[+ND] Ignoring event %s", event.id);
     } else if (event.status === "cancelled") {
       console.log("[+ND] Event %s was cancelled.", event.id);
@@ -599,7 +615,7 @@ function convertToGCalEvent(page_result) {
 
   if (dates.date) {
     let all_day = dates.date.end === null;
-    
+
     if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
       dates.date.start += "T00:00:00";
       all_day = true;
@@ -611,13 +627,13 @@ function convertToGCalEvent(page_result) {
       all_day = false;
       let default_end = new Date(dates.date.start);
       default_end.setMinutes(default_end.getMinutes() + 30);
-      
+
       dates.date.end = default_end.toISOString();
     } else if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
       dates.date.end += "T00:00:00";
       all_day = true;
     }
-    
+
     let event = {
       ...(e_id && { id: e_id }),
       ...(e_summary && { summary: e_summary }),
