@@ -17,6 +17,10 @@ const FULL_SYNC = false;
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 
+// Relative to the time of last full sync in days.
+const RELATIVE_MAX_DAY = 1825; // 5 years
+const RELATIVE_MIN_DAY = 30;
+
 function main() {
   parseNotionProperties();
 
@@ -118,6 +122,7 @@ function syncToGCal() {
   }
   return modified_eIds;
 }
+
 /**
  * Syncs from google calendar to Notion
  * @param {String} c_name Calendar name
@@ -132,13 +137,14 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
     singleEvents: true, // allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
+  
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
   } else {
     // Sync events up to thirty days in the past.
-    options.timeMin = getRelativeDate(-30, 0).toISOString();
-    // Sync events up to one year in the future.
-    //options.timeMax = getRelativeDate(365, 0).toISOString();
+    options.timeMin = getRelativeDate(-RELATIVE_MIN_DATE, 0).toISOString();
+    // Sync events up to x days in the future.
+    options.timeMax = getRelativeDate(RELATIVE_MAX_DATE, 0).toISOString();
   }
 
   // Retrieve events one page at a time.
@@ -152,8 +158,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
       if (
-        e.message ===
-        "Sync token is no longer valid, a full sync is required."
+        e.message === "Sync token is no longer valid, a full sync is required."
       ) {
         properties.deleteProperty("syncToken");
         syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
@@ -594,6 +599,7 @@ function convertToGCalEvent(page_result) {
 
   if (dates.date) {
     let all_day = dates.date.end === null;
+    
     if (dates.date.start && dates.date.start.search(/([A-Z])/g) === -1) {
       dates.date.start += "T00:00:00";
       all_day = true;
@@ -605,11 +611,13 @@ function convertToGCalEvent(page_result) {
       all_day = false;
       let default_end = new Date(dates.date.start);
       default_end.setMinutes(default_end.getMinutes() + 30);
+      
       dates.date.end = default_end.toISOString();
     } else if (dates.date.end && dates.date.end.search(/([A-Z])/g) === -1) {
       dates.date.end += "T00:00:00";
       all_day = true;
     }
+    
     let event = {
       ...(e_id && { id: e_id }),
       ...(e_summary && { summary: e_summary }),
