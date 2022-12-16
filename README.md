@@ -1,16 +1,30 @@
-# Yet Another Two Way Notion-Google Calendar Sync Script
+# Yet Another Two-Way Notion-Google Calendar Sync Script 
 
-A script to sync events between Google calendar and a Notion database.
+Yet another script to synchronize events between Google Calendar and a Notion database.
 
-## Features!
+This script aims to be a simple to setup, set and forget method of achieving two-way synchronization between a Notion Database, and multiple personal Google Calendars. By using Google App Scripts, this project avoids the mess caused by potential differences in operating systems, needing to download and install extra programs, and needing a personal computer that is currently turned on. It also means access to special integration benefits such as triggers actioned by an update to a Google Calendar event.
+
+Currently supports two-way event creation, deletion, and updating.
+| Property | Synchronization | Info |
+| ---- | ---- | ---- |
+| Name | 🔀 Yes| Title |
+| Date | 🔀 Yes| Date & Time (Start and End) |
+| Tags | ⚠️ Notion Database Only | Multi-select - Personal organization and script interaction |
+| Location | 🔀 Yes| Text |
+| Description | 🔀 Yes| Text |
+
+## For [setup instructions 🔰](https://github.com/hk21702/YA-GCal-Notion-Sync-Script/wiki/Setup-Instructions%F0%9F%94%B0) and FAQ, please go to the [wiki!](https://github.com/hk21702/YA-GCal-Notion-Sync-Script/wiki)
+
+## Additional Info/Features
 
 - Google App Script based
-  - Script hosted by Google
-  - Trigger the scripts automatically with triggers
+  - Operating System Agnostic
+  - Nothing to download or install
+  - Automatic Script Trigger
     - Time Intervals
-    - GCal Updates
+    - Google Calendar Updates
   - Logs that are saved and can be looked at later
-- Sync both from Google Calendar, and from Notion
+- Sync both from GCal, and from Notion
   - Creation
   - Updates
     - Changing calendars from Notion
@@ -19,12 +33,7 @@ A script to sync events between Google calendar and a Notion database.
 - Support for recurring Events (Only available by setting through GCal)
 - No Notion formulas
 - Flexible property names
-  - Can be modified easily in the code
 - Support for all day events, multi day events and scheduled events
-- Ignore sync tag
-  - Marks a page such that the script will ignore that event entirely when syncing in either direction
-
-## For setup instructions and FAQ, please go to the [wiki!](https://github.com/hk21702/YA-GCal-Notion-Sync-Script/wiki)
 
 ## Known limitations/Bugs
 
