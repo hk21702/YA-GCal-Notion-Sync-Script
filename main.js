@@ -158,9 +158,9 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
     options.syncToken = syncToken;
   } else {
     // Sync events up to thirty days in the past.
-    options.timeMin = getRelativeDate(-RELATIVE_MIN_DATE, 0).toISOString();
+    options.timeMin = getRelativeDate(-RELATIVE_MIN_DAY, 0).toISOString();
     // Sync events up to x days in the future.
-    options.timeMax = getRelativeDate(RELATIVE_MAX_DATE, 0).toISOString();
+    options.timeMax = getRelativeDate(RELATIVE_MAX_DAY, 0).toISOString();
   }
 
   // Retrieve events one page at a time.
