@@ -512,12 +512,24 @@ function convertToNotionProperty(event, existing_tags = []) {
 
     if (event.start.date) {
       // All-day event.
-      start_time = event.start.date;
+      start_time = new Date(event.start.date);
       end_time = new Date(event.end.date);
-      end_time = end_time.toLocaleDateString("en-ca");
-      // Offset by 1 day to get end date.
 
-      end_time = start_time === end_time ? null : end_time;
+      // Offset timezone
+      start_time.setTime(
+        start_time.getTime() + start_time.getTimezoneOffset() * 60 * 1000
+      );
+      end_time.setTime(
+        end_time.getTime() + end_time.getTimezoneOffset() * 60 * 1000
+      );
+
+      // Offset by 1 day to get end date.
+      end_time.setDate(end_time.getDate() - 1);
+
+      start_time = start_time.toISOString().split("T")[0];
+      end_time = end_time.toISOString().split("T")[0];
+
+      end_time = start_time == end_time ? null : end_time;
     } else {
       // Events that don't last all day; they have defined start times.
       start_time = event.start.dateTime;
