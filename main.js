@@ -53,7 +53,7 @@ function fullSync() {
   );
 
   for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, true, []);
+    syncFromGCal(c_name, true, new Set());
   }
 }
 
