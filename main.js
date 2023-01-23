@@ -105,37 +105,44 @@ function syncToGCal() {
         // Update event in original calendar.
         console.log("[+GC] Updating event %s in %s.", event.id, calendar_name);
         pushEventUpdate(event, event.id, calendar_id);
-      } else {
-        // Event being moved to a new calendar - delete from old calendar and then create using calendar name
-        let modified_eId;
-        if (
-          deleteEvent(event.id, calendar_id) &&
-          (modified_eId = createEvent(result, event, calendar_name))
-        ) {
-          console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
-          modified_eIds.add(modified_eId);
-        } else {
-          console.log(
-            "[+GC] Event %s failed to move to %s.",
-            event.id,
-            calendar_name
-          );
-        }
+
+        continue;
       }
-    } else if (CALENDAR_IDS[calendar_name]) {
+      // Event being moved to a new calendar - delete from old calendar and then create using calendar name
+      let modified_eId;
+      if (
+        deleteEvent(event.id, calendar_id) &&
+        (modified_eId = createEvent(result, event, calendar_name))
+      ) {
+        console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
+        modified_eIds.add(modified_eId);
+
+        continue;
+      }
+
+      console.log(
+        "[+GC] Event %s failed to move to %s.",
+        event.id,
+        calendar_name
+      );
+
+      continue;
+    }
+
+    if (CALENDAR_IDS[calendar_name]) {
       // attempt to create using calendar name
       let modified_eId;
       if ((modified_eId = createEvent(result, event, calendar_name))) {
         console.log("[+GC] Event created in %s.", calendar_name);
         modified_eIds.add(modified_eId);
       }
-    } else {
-      // Calendar name not found in dictonary. Abort.
-      console.log(
-        "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
-        calendar_name
-      );
+      continue;
     }
+    // Calendar name not found in dictonary. Abort.
+    console.log(
+      "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
+      calendar_name
+    );
   }
   return modified_eIds;
 }
@@ -213,7 +220,8 @@ function parseEvents(events, ignored_eIds) {
     if (ignored_eIds.has(event.id)) {
       console.log("[+ND] Ignoring event %s", event.id);
       continue;
-    } else if (event.status === "cancelled") {
+    }
+    if (event.status === "cancelled") {
       console.log("[+ND] Event %s was cancelled.", event.id);
       // Remove the event from the database
       handleEventCancelled(event);
