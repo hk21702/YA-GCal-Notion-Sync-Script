@@ -12,6 +12,7 @@ const LAST_SYNC_NOTION = "Last Sync";
 const ARCHIVE_CANCELLED_EVENTS = true;
 const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
+const SKIP_BAD_EVENTS = true;
 
 // Deprecated
 const FULL_SYNC = false;
@@ -104,37 +105,44 @@ function syncToGCal() {
         // Update event in original calendar.
         console.log("[+GC] Updating event %s in %s.", event.id, calendar_name);
         pushEventUpdate(event, event.id, calendar_id);
-      } else {
-        // Event being moved to a new calendar - delete from old calendar and then create using calendar name
-        let modified_eId;
-        if (
-          deleteEvent(event.id, calendar_id) &&
-          (modified_eId = createEvent(result, event, calendar_name))
-        ) {
-          console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
-          modified_eIds.add(modified_eId);
-        } else {
-          console.log(
-            "[+GC] Event %s failed to move to %s.",
-            event.id,
-            calendar_name
-          );
-        }
+
+        continue;
       }
-    } else if (CALENDAR_IDS[calendar_name]) {
+      // Event being moved to a new calendar - delete from old calendar and then create using calendar name
+      let modified_eId;
+      if (
+        deleteEvent(event.id, calendar_id) &&
+        (modified_eId = createEvent(result, event, calendar_name))
+      ) {
+        console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
+        modified_eIds.add(modified_eId);
+
+        continue;
+      }
+
+      console.log(
+        "[+GC] Event %s failed to move to %s.",
+        event.id,
+        calendar_name
+      );
+
+      continue;
+    }
+
+    if (CALENDAR_IDS[calendar_name]) {
       // attempt to create using calendar name
       let modified_eId;
       if ((modified_eId = createEvent(result, event, calendar_name))) {
         console.log("[+GC] Event created in %s.", calendar_name);
         modified_eIds.add(modified_eId);
       }
-    } else {
-      // Calendar name not found in dictonary. Abort.
-      console.log(
-        "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
-        calendar_name
-      );
+      continue;
     }
+    // Calendar name not found in dictonary. Abort.
+    console.log(
+      "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
+      calendar_name
+    );
   }
   return modified_eIds;
 }
@@ -211,50 +219,69 @@ function parseEvents(events, ignored_eIds) {
     event["c_name"] = events["c_name"];
     if (ignored_eIds.has(event.id)) {
       console.log("[+ND] Ignoring event %s", event.id);
-    } else if (event.status === "cancelled") {
+      continue;
+    }
+    if (event.status === "cancelled") {
       console.log("[+ND] Event %s was cancelled.", event.id);
       // Remove the event from the database
       handleEventCancelled(event);
+      continue;
+    }
+    let start;
+    let end;
+
+    if (event.start.date) {
+      // All-day event.
+      start = new Date(event.start.date);
+      end = new Date(event.end.date);
+      console.log(
+        "[+ND] Event found %s %s (%s -- %s)",
+        event.id,
+        event.summary,
+        start.toLocaleDateString(),
+        end.toLocaleDateString()
+      );
     } else {
-      let start;
-      let end;
-      if (event.start.date) {
-        // All-day event.
-        start = new Date(event.start.date);
-        end = new Date(event.end.date);
+      // Events that don't last all day; they have defined start times.
+      start = event.start.dateTime;
+      end = event.end.dateTime;
+      console.log(
+        "[+ND] Event found %s %s (%s)",
+        event.id,
+        event.summary,
+        start.toLocaleString()
+      );
+    }
+    let page_response = getPageFromEvent(event);
+
+    if (page_response) {
+      console.log(
+        "[+ND] Event %s database page %s exists already. Attempting update.",
+        event.id,
+        page_response.id
+      );
+      let tags = page_response.properties[TAGS_NOTION].multi_select;
+      requests.push(
+        updateDatabaseEntry(event, page_response.id, tags ? tags : [])
+      );
+
+      continue;
+    }
+    console.log("[+ND] Creating database entry.");
+
+    try {
+      requests.push(createDatabaseEntry(event));
+    } catch (err) {
+      if ((err instanceof InvalidEventError) & SKIP_BAD_EVENTS) {
         console.log(
-          "[+ND] Event found %s %s (%s -- %s)",
-          event.id,
-          event.summary,
-          start.toLocaleDateString(),
-          end.toLocaleDateString()
+          "[+ND] Skipping creation of event %s due to invalid properties.",
+          event.id
         );
-      } else {
-        // Events that don't last all day; they have defined start times.
-        start = event.start.dateTime;
-        end = event.end.dateTime;
-        console.log(
-          "[+ND] Event found %s %s (%s)",
-          event.id,
-          event.summary,
-          start.toLocaleString()
-        );
+
+        continue;
       }
-      let page_response = getPageFromEvent(event);
-      if (page_response) {
-        console.log(
-          "[+ND] Event %s database page %s exists already. Attempting update.",
-          event.id,
-          page_response.id
-        );
-        let tags = page_response.properties[TAGS_NOTION].multi_select;
-        requests.push(
-          updateDatabaseEntry(event, page_response.id, tags ? tags : [])
-        );
-      } else {
-        console.log("[+ND] Creating database entry.");
-        requests.push(createDatabaseEntry(event));
-      }
+
+      throw err;
     }
   }
   console.log("[+ND] Finished parsing page. Sending batch request.");
@@ -343,6 +370,10 @@ function createDatabaseEntry(event) {
 
   payload["properties"] = convertToNotionProperty(event);
 
+  if (!checkNotionProperty(payload["properties"])) {
+    throw new InvalidEventError("Invalid Notion property structure");
+  }
+
   let options = {
     url: url,
     method: "POST",
@@ -351,6 +382,22 @@ function createDatabaseEntry(event) {
     payload: JSON.stringify(payload),
   };
   return options;
+}
+
+/**
+ * Checks if the properties are valid for Notion
+ *
+ * @param {*} properties Properties object to check
+ * @returns false if invalid, true if valid
+ */
+function checkNotionProperty(properties) {
+  // Check if description is too long
+  if (properties[DESCRIPTION_NOTION].rich_text[0].text.content.length > 2000) {
+    console.log("Event description is too long.");
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -891,5 +938,16 @@ function pushEventUpdate(event, event_id, calendar_id) {
   } catch (e) {
     console.log("Failed to push event update to GCal. %s", e);
     return false;
+  }
+}
+
+/**
+ * Error thrown when an event is invalid and cannot be
+ * pushed to either Google Calendar or Notion.
+ */
+class InvalidEventError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "InvalidEventError";
   }
 }
