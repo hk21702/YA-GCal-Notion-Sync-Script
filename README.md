@@ -43,3 +43,4 @@ Currently supports two-way event creation, deletion, and updating.
   - Caused by Notion API limit
 - Rich text (bolding, italics, etc.) used in the description will be overwritten to plain text after syncing.
 - Doesn't seem to work with auto-generated calendars such as Birthdays. Might be a limitation of GCal API. See https://github.com/hk21702/YA-GCal-Notion-Sync-Script/issues/3
+- Descriptions can only have at most 2,000 characters. This is a limit imposed by Notion. The script will fail gracefully if the event is being newly created, but will fail catastrophically if it is trying to update an event. This is intentional to prevent data merge issues.
