@@ -933,6 +933,10 @@ function pushEventUpdate(event, event_id, calendar_id) {
   }
 }
 
+/**
+ * Error thrown when an event is invalid and cannot be
+ * pushed to either Google Calendar or Notion.
+ */
 class InvalidEventError extends Error {
   constructor(message) {
     super(message);
