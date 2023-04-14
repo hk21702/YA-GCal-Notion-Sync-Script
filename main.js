@@ -14,9 +14,6 @@ const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
 const SKIP_BAD_EVENTS = true;
 
-// Deprecated
-const FULL_SYNC = false;
-
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 
@@ -82,7 +79,9 @@ function syncToGCal() {
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
-    if (!isPageUpdatedRecently(result)) continue;
+    if (!isPageUpdatedRecently(result)) {
+      continue;
+    }
 
     let event = convertToGCalEvent(result);
 
@@ -262,7 +261,7 @@ function parseEvents(events, ignored_eIds) {
       );
       let tags = page_response.properties[TAGS_NOTION].multi_select;
       requests.push(
-        updateDatabaseEntry(event, page_response.id, tags ? tags : [])
+        updateDatabaseEntry(event, page_response.id, tags || [])
       );
 
       continue;
@@ -272,7 +271,7 @@ function parseEvents(events, ignored_eIds) {
     try {
       requests.push(createDatabaseEntry(event));
     } catch (err) {
-      if ((err instanceof InvalidEventError) & SKIP_BAD_EVENTS) {
+      if ((err instanceof InvalidEventError) && SKIP_BAD_EVENTS) {
         console.log(
           "[+ND] Skipping creation of event %s due to invalid properties.",
           event.id
@@ -403,21 +402,23 @@ function checkNotionProperty(properties) {
 /**
  * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
  * @param {CalendarEvent} event
+ * @param {string|undefined} on_before_date Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
  * @returns {*} Page response if found.
  */
-function getPageFromEvent(event) {
+function getPageFromEvent(event, on_before_date = null) {
   const url = getDatabaseURL();
-  const payload = {
+  let payload = {
     filter: {
-      and: [
-        { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
-        {
-          property: LAST_SYNC_NOTION,
-          date: { before: new Date().toISOString(event.updated) },
-        },
-      ],
+      and: [{ property: EVENT_ID_NOTION, rich_text: { equals: event.id } }],
     },
   };
+
+  if (on_before_date) {
+    payload["filter"]["and"].push({
+      property: LAST_SYNC_NOTION,
+      date: { on_or_before: new Date().toISOString(on_before_date) },
+    });
+  }
 
   const response_data = notionFetch(url, payload, "POST");
 
@@ -536,7 +537,7 @@ function convertToNotionProperty(event, existing_tags = []) {
     rich_text: [
       {
         text: {
-          content: event.description ? event.description : "",
+          content: event.description || "",
         },
       },
     ],
@@ -547,7 +548,7 @@ function convertToNotionProperty(event, existing_tags = []) {
     rich_text: [
       {
         text: {
-          content: event.location ? event.location : "",
+          content: event.location || "",
         },
       },
     ],
@@ -597,7 +598,7 @@ function convertToNotionProperty(event, existing_tags = []) {
         {
           type: "text",
           text: {
-            content: event.summary ? event.summary : "",
+            content: event.summary || "",
           },
         },
       ],
@@ -803,7 +804,9 @@ function deleteCancelledEvents() {
       } catch (e) {
         if (e instanceof TypeError) {
           console.log("[-GCal] Error. Page missing calendar id or event ID");
-        } else throw e;
+        } else {
+          throw e;
+        }
       } finally {
         ARCHIVE_CANCELLED_EVENTS
           ? pushDatabaseUpdate([], result.id, true)
@@ -872,7 +875,7 @@ function createEvent(page, event, calendar_name) {
 
   if (event.end && event.all_day) {
     // add and shift
-    var shifted_date = new Date(event.end);
+    let shifted_date = new Date(event.end);
     shifted_date.setDate(shifted_date.getDate() + 1);
     options.push(shifted_date);
   } else if (event.end) {
@@ -924,7 +927,7 @@ function pushEventUpdate(event, event_id, calendar_id) {
 
     if (event.end && event.all_day) {
       // all day, multi day
-      var shifted_date = new Date(event.end);
+      let shifted_date = new Date(event.end);
       shifted_date.setDate(shifted_date.getDate() + 2);
       cal_event.setAllDayDates(new Date(event.start), shifted_date);
     } else if (event.all_day) {
