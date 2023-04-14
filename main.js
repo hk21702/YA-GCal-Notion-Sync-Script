@@ -14,9 +14,6 @@ const DELETE_CANCELLED_EVENTS = true;
 const IGNORE_RECENTLY_PUSHED = true;
 const SKIP_BAD_EVENTS = true;
 
-// Deprecated
-const FULL_SYNC = false;
-
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 
