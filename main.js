@@ -82,7 +82,9 @@ function syncToGCal() {
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
-    if (!isPageUpdatedRecently(result)) continue;
+    if (!isPageUpdatedRecently(result)) {
+      continue;
+    }
 
     let event = convertToGCalEvent(result);
 
@@ -262,7 +264,7 @@ function parseEvents(events, ignored_eIds) {
       );
       let tags = page_response.properties[TAGS_NOTION].multi_select;
       requests.push(
-        updateDatabaseEntry(event, page_response.id, tags ? tags : [])
+        updateDatabaseEntry(event, page_response.id, tags || [])
       );
 
       continue;
@@ -272,7 +274,7 @@ function parseEvents(events, ignored_eIds) {
     try {
       requests.push(createDatabaseEntry(event));
     } catch (err) {
-      if ((err instanceof InvalidEventError) & SKIP_BAD_EVENTS) {
+      if ((err instanceof InvalidEventError) && SKIP_BAD_EVENTS) {
         console.log(
           "[+ND] Skipping creation of event %s due to invalid properties.",
           event.id
@@ -538,7 +540,7 @@ function convertToNotionProperty(event, existing_tags = []) {
     rich_text: [
       {
         text: {
-          content: event.description ? event.description : "",
+          content: event.description || "",
         },
       },
     ],
@@ -549,7 +551,7 @@ function convertToNotionProperty(event, existing_tags = []) {
     rich_text: [
       {
         text: {
-          content: event.location ? event.location : "",
+          content: event.location || "",
         },
       },
     ],
@@ -599,7 +601,7 @@ function convertToNotionProperty(event, existing_tags = []) {
         {
           type: "text",
           text: {
-            content: event.summary ? event.summary : "",
+            content: event.summary || "",
           },
         },
       ],
@@ -805,7 +807,9 @@ function deleteCancelledEvents() {
       } catch (e) {
         if (e instanceof TypeError) {
           console.log("[-GCal] Error. Page missing calendar id or event ID");
-        } else throw e;
+        } else {
+          throw e;
+        }
       } finally {
         ARCHIVE_CANCELLED_EVENTS
           ? pushDatabaseUpdate([], result.id, true)
@@ -874,7 +878,7 @@ function createEvent(page, event, calendar_name) {
 
   if (event.end && event.all_day) {
     // add and shift
-    var shifted_date = new Date(event.end);
+    let shifted_date = new Date(event.end);
     shifted_date.setDate(shifted_date.getDate() + 1);
     options.push(shifted_date);
   } else if (event.end) {
@@ -926,7 +930,7 @@ function pushEventUpdate(event, event_id, calendar_id) {
 
     if (event.end && event.all_day) {
       // all day, multi day
-      var shifted_date = new Date(event.end);
+      let shifted_date = new Date(event.end);
       shifted_date.setDate(shifted_date.getDate() + 2);
       cal_event.setAllDayDates(new Date(event.start), shifted_date);
     } else if (event.all_day) {
