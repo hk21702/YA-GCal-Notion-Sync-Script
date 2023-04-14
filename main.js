@@ -403,21 +403,23 @@ function checkNotionProperty(properties) {
 /**
  * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
  * @param {CalendarEvent} event
+ * @param {string|undefined} on_before_date Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
  * @returns {*} Page response if found.
  */
-function getPageFromEvent(event) {
+function getPageFromEvent(event, on_before_date = null) {
   const url = getDatabaseURL();
-  const payload = {
+  let payload = {
     filter: {
-      and: [
-        { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
-        {
-          property: LAST_SYNC_NOTION,
-          date: { before: new Date().toISOString(event.updated) },
-        },
-      ],
+      and: [{ property: EVENT_ID_NOTION, rich_text: { equals: event.id } }],
     },
   };
+
+  if (on_before_date) {
+    payload["filter"]["and"].push({
+      property: LAST_SYNC_NOTION,
+      date: { on_or_before: new Date().toISOString(on_before_date) },
+    });
+  }
 
   const response_data = notionFetch(url, payload, "POST");
 
