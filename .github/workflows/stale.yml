@@ -30,8 +30,8 @@ jobs:
         DEFAULT_DEBUG: false
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-        stale-issue-message: "This issue has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n @Author, you can help out by closing this issue if the problem no longer exists, or adding more information."
-        stale-pr-message: "This pull request has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n @Assignee(s), you can help out by labeling this pull request as a work-in-progress if it is still being actively worked on, or closing it if not."
+        stale-issue-message: "This issue has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n Author, you can help out by closing this issue if the problem no longer exists, or adding more information."
+        stale-pr-message: "This pull request has not had any activity for an extended period of time and is thus automatically being marked as stale.\n\n Assignee(s), you can help out by labeling this pull request as a work-in-progress if it is still being actively worked on, or closing it if not."
         stale-issue-label: 'stale'
         stale-pr-label: 'stale'
         # Additional input options -------------------------------------------------------------------------       
