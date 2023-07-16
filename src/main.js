@@ -21,6 +21,9 @@ const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 const RELATIVE_MAX_DAY = 1825; // 5 years
 const RELATIVE_MIN_DAY = 30;
 
+// API constants
+const API_PAGES_URL = "https://api.notion.com/v1/pages/";
+
 function main() {
   parseNotionProperties();
 
@@ -150,16 +153,22 @@ function syncToGCal() {
  * Syncs from google calendar to Notion
  * @param {String} c_name Calendar name
  * @param {Boolean} fullSync Whenever or not to discard the old page token
- * @param {Set[String]} ignored_eIds Event IDs to not act on.
+ * @param {Set<String>}} ignored_eIds Event IDs to not act on.
+ *
+ * @throws {Error} If there is an error during the sync process.
  */
-function syncFromGCal(c_name, fullSync, ignored_eIds) {
+function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
   console.log("[+ND] Syncing from Google Calendar: %s", c_name);
-  let properties = PropertiesService.getUserProperties();
+  const properties = PropertiesService.getUserProperties();
+  const syncToken = properties.getProperty("syncToken");
+
+  let pageToken = null;
+  let events;
+
   let options = {
     maxResults: 100,
     singleEvents: true, // allow recurring events
   };
-  let syncToken = properties.getProperty("syncToken");
 
   if (syncToken && !fullSync) {
     options.syncToken = syncToken;
@@ -171,11 +180,9 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   }
 
   // Retrieve events one page at a time.
-  let events;
-  let pageToken;
   do {
+    options.pageToken = pageToken;
     try {
-      options.pageToken = pageToken;
       events = Calendar.Events.list(CALENDAR_IDS[c_name], options);
     } catch (e) {
       // Check to see if the sync token was invalidated by the server;
@@ -183,9 +190,11 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
       if (
         e.message === "Sync token is no longer valid, a full sync is required."
       ) {
+        console.log(
+          "[+ND] Sync token is no longer valid, a full sync is required. Attempting."
+        );
         properties.deleteProperty("syncToken");
-        syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
-        return;
+        return syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
       } else {
         throw new Error(e.message);
       }
@@ -205,6 +214,15 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
 
   properties.setProperty("syncToken", events.nextSyncToken);
 }
+
+/**
+ * Determine if a gcal event needs to be updated, removed or added to the database.
+ * If so, create a request that can be batched.
+ * @param {CalendarEvent} event Google calendar event
+ * @param {String} eId Event ID
+ *
+ * @returns {String} Event ID if the event was modified, null otherwise.
+ */
 
 /**
  * Determine if gcal events need to be updated, removed, or added to the database
@@ -260,9 +278,7 @@ function parseEvents(events, ignored_eIds) {
         page_response.id
       );
       let tags = page_response.properties[TAGS_NOTION].multi_select;
-      requests.push(
-        updateDatabaseEntry(event, page_response.id, tags || [])
-      );
+      requests.push(updateDatabaseEntry(event, page_response.id, tags || []));
 
       continue;
     }
@@ -271,7 +287,7 @@ function parseEvents(events, ignored_eIds) {
     try {
       requests.push(createDatabaseEntry(event));
     } catch (err) {
-      if ((err instanceof InvalidEventError) && SKIP_BAD_EVENTS) {
+      if (err instanceof InvalidEventError && SKIP_BAD_EVENTS) {
         console.log(
           "[+ND] Skipping creation of event %s due to invalid properties.",
           event.id
@@ -315,13 +331,65 @@ function updateDatabaseEntry(event, page_id, existing_tags = [], multi = true) {
 
   return pushDatabaseUpdate(properties, page_id, archive, multi);
 }
+
+/**
+ * Creates the payload for updating a Notion database entry.
+ *
+ * @param {Object} properties - The updated properties for the database entry.
+ * @param {boolean} archive - Whether to archive the database entry.
+ *
+ * @returns {Object} The payload for updating the database entry.
+ */
+function createDatabaseUpdatePayload(properties, archive = false) {
+  const payload = {
+    properties,
+  };
+  if (archive) {
+    payload.archived = true;
+  }
+  return payload;
+}
+
+/** Create new Notion database update params for an event that can be batched with other events
+ * or fetched using UrlFetchApp.fetchAll or UrlFetchApp.fetch respectively.
+ *
+ * @param {string} pageId - The ID of the database entry to update.
+ * @param {Object} payload - The payload object to send to the Notion API.
+ * @param {boolean} multi - Whether to configure the request param for a single fetch or fetchAll.
+ * @param {boolean} muteHttpExceptions - Whether to mute HTTP exceptions.
+ *
+ * @returns {Object} A request options dictionary.
+ * */
+function createDatabaseUpdateParams(
+  page_id,
+  payload,
+  multi = false,
+  muteHttpExceptions = false
+) {
+  let params = {
+    method: "PATCH",
+    headers: getNotionHeaders(),
+    muteHttpExceptions: muteHttpExceptions,
+    payload: JSON.stringify(payload),
+  };
+
+  if (multi) {
+    params["url"] = API_PAGES_URL + page_id;
+  }
+  return params;
+}
+
 /**
  * Push update to notion database for page
- * @param {Object} properties
- * @param {String} page_id page id to update
- * @param {Boolean} archive whenever or not to archive the page
- * @param {Boolean} multi whenever or not to use single fetch, or return options for fetchAll
- * @returns {*} request object if multi, otherwise URL fetch response
+ *
+ * @param {Object} properties - The updated properties for the database entry.
+ * @param {string} page_id - The ID of the database entry to update.
+ * @param {boolean} archive - Whether to archive the database entry.
+ * @param {boolean} multi - Whether to use a single fetch or return options for fetchAll.
+ *
+ * @returns {*} A request options dictionary if `multi` is `true`, otherwise a HTTPResponse object.
+ *
+ * TODO: Depricate in favor of only using createDatabaseUpdateParams
  */
 function pushDatabaseUpdate(
   properties,
@@ -727,8 +795,12 @@ function parseNotionProperties() {
 }
 
 /**
- * Get notion page ID of corresponding gCal event. Returns null if no page found.
- * @param {CalendarEvent} event - Modiffied gCal event object
+ * Get the Notion page ID of corresponding gCal event. Throws error if nothing is found.
+ * @param {CalendarEvent} event - Modified gCal event object
+ *
+ * @returns {string} - Notion page ID
+ *
+ * @throws {PageNotFound} - Page not found in Notion database
  */
 function getPageId(event) {
   const url = getDatabaseURL();
@@ -746,19 +818,20 @@ function getPageId(event) {
     },
   };
 
-  const response_data = notionFetch(url, payload, "POST");
+  const responseData = notionFetch(url, payload, "POST");
 
-  if (response_data.results.length > 0) {
-    if (response_data.results.length > 1) {
+  if (responseData.results.length > 0) {
+    if (responseData.results.length > 1) {
       console.log(
         "Found multiple entries with event id %s. This should not happen. Only processing index zero entry.",
         event.id
       );
     }
 
-    return response_data.results[0].id;
+    return responseData.results[0].id;
   }
-  return null;
+
+  throw new PageNotFound("Page not found in Notion database", event.id);
 }
 
 /**
@@ -766,12 +839,15 @@ function getPageId(event) {
  * @param {CalendarEvent} event - Modiffied gCal event object
  */
 function handleEventCancelled(event) {
-  const page_id = getPageId(event);
-
-  if (page_id) {
+  try {
+    const page_id = getPageId(event);
     updateDatabaseEntry(event, page_id, [], false);
-  } else {
-    console.log("Event %s not found in Notion database. Skipping.", event.id);
+  } catch (e) {
+    if (e instanceof PageNotFound) {
+      console.log("Event %s not found in Notion database. Skipping.", event.id);
+      return;
+    }
+    throw e;
   }
 }
 
@@ -952,5 +1028,19 @@ class InvalidEventError extends Error {
   constructor(message) {
     super(message);
     this.name = "InvalidEventError";
+  }
+}
+
+/**
+ * Error thrown when the specified page is not found in the Notion database.
+ * Could be harmless depending on the context.
+ *
+ * @param {String} message - Error message
+ * @param {String} eventId - Event ID of the page that was not found
+ */
+class PageNotFound extends Error {
+  constructor(message, eventId) {
+    super(message + " Event ID: " + eventId);
+    this.name = "PageNotFound";
   }
 }
