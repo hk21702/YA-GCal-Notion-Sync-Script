@@ -16,6 +16,7 @@ const SKIP_BAD_EVENTS = true;
 
 const CANCELLED_TAG_NAME = "Cancelled/Removed";
 const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
+const MAX_PAGE_SIZE = 100;
 
 // Relative to the time of last full sync in days.
 const RELATIVE_MAX_DAY = 1825; // 5 years
@@ -166,7 +167,7 @@ function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
   let events;
 
   let options = {
-    maxResults: 100,
+    maxResults: MAX_PAGE_SIZE,
     singleEvents: true, // allow recurring events
   };
 
