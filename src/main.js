@@ -468,6 +468,82 @@ function checkNotionProperty(properties) {
 }
 
 /**
+ * Create a payload for fetching a Notion page based on the event ID.
+ *
+ * @param {string} eventId - The ID of the event to fetch.
+ * @param {string|undefined} on_before_date - Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
+ * @param {boolean} considerIST - Whenever or not to consider the ignore sync tag. Default is true.
+ *
+ * @returns {Object} The payload for fetching the Notion page.
+ */
+function createPageFetchPayload(
+  eventId,
+  on_before_date = null,
+  considerIST = true
+) {
+  let payload = {
+    filter: {
+      and: [{ property: EVENT_ID_NOTION, rich_text: { equals: eventId } }],
+    },
+  };
+
+  if (on_before_date) {
+    payload["filter"]["and"].push({
+      property: LAST_SYNC_NOTION,
+      date: { on_or_before: new Date().toISOString(on_before_date) },
+    });
+  }
+
+  if (considerIST) {
+    payload["filter"]["and"].push({
+      property: TAGS_NOTION,
+      multi_select: { does_not_contain: IGNORE_SYNC_TAG },
+    });
+  }
+
+  return payload;
+}
+
+/**
+ * Check the response from a Notion page fetch for validity. Returns the page
+ * response result if valid. If multiple pages are found in the response, issues
+ * a warning and returns the first page. Throws an error if no pages are found.
+ *
+ * @param {*} responseData
+ * @param {string} expectedId
+ *
+ * @returns {*} The page response result if valid.
+ *
+ * @throws {PageNotFound} If no pages are found.
+ * @throws {UnexpectedPageFound} If the page found does not match the expected ID.
+ */
+function checkNotionPageFetchResponse(responseData, expectedId) {
+  if (responseData.results.length == 0) {
+    throw new PageNotFound("No page found in Notion database.", expectedId);
+  } else if (responseData.results.length > 1) {
+    console.warn(
+      "Multiple pages found for event ID " +
+        expectedId +
+        ". Using first page found."
+    );
+  }
+
+  // Check if the page's event ID matches the expected ID
+  const foundId =
+    responseData.results[0].properties[EVENT_ID_NOTION].rich_text[0].text
+      .content;
+  if (foundId != expectedId) {
+    throw new UnexpectedPageFound(
+      "Unexpected page found in Notion database.",
+      foundId,
+      expectedId
+    );
+  }
+
+  return responseData.results[0];
+}
+
+/**
  * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
  * @param {CalendarEvent} event
  * @param {string|undefined} on_before_date Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
@@ -1042,5 +1118,19 @@ class PageNotFound extends Error {
   constructor(message, eventId) {
     super(message + " Event ID: " + eventId);
     this.name = "PageNotFound";
+  }
+}
+
+/**
+ * Error thrown when an unexpected page is found when searching for a different page.
+ *
+ * @param {String} message - Error message
+ * @param {String} foundId - Event ID of the page that was found
+ * @param {String} expectedId - Event ID of the page that was expected
+ */
+class UnexpectedPageFound extends Error {
+  constructor(message, foundId, expectedId) {
+    super(message + " Found ID: " + foundId + " Expected ID: " + expectedId);
+    this.name = "UnexpectedPageFound";
   }
 }
