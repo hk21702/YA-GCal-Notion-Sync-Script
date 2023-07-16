@@ -1,1 +1,9 @@
-calendarIds.js
+# NPM
+node_modules/
+
+# Clasp
+src/.clasp.json
+src/appsscript.json
+
+# Ignore for config reasons
+#calendarIds.js
