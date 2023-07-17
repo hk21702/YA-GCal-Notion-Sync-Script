@@ -1,3 +1,4 @@
+// @ts-check
 const NAME_NOTION = "Name";
 const DATE_NOTION = "Date";
 const TAGS_NOTION = "Tags";
@@ -24,6 +25,26 @@ const RELATIVE_MIN_DAY = 30;
 
 // API constants
 const API_PAGES_URL = "https://api.notion.com/v1/pages/";
+
+/**
+ * The payload for fetching a Notion page.
+ * @typedef {Object} Payload
+ *
+ * @property {Object} filter The filter object for the Notion API request.
+ * @property {Object[]} filter.and The array of filters to apply to the request, handled as and.
+ * @property {string} filter.and[].property The property to filter on.
+ * @property {Object} [filter.and[].rich_text] The rich text object to filter on.
+ * @property {Object} [filter.and[].multi_select] The multi select object to filter on.
+ * @property {string} [filter.and[].multi_select.does_not_contain] The multi select object to filter on.
+ */
+
+/**
+ * GCal calendar events and the calendar name.
+ * @typedef {Object} CalEvents
+ *
+ * @property {string} cName
+ * @property {GoogleAppsScript.Calendar.Schema.Events} events
+ */
 
 function main() {
   parseNotionProperties();
@@ -61,7 +82,7 @@ function fullSync() {
 
 /**
  * Sync to google calendar from Notion
- * @returns {Set[String]} - Array of event IDs that were modified through event creation
+ * @returns {Set<string>} - Array of event IDs that were modified through event creation
  */
 function syncToGCal() {
   console.log("[+GC] Syncing to Google Calendar.");
@@ -152,9 +173,9 @@ function syncToGCal() {
 
 /**
  * Syncs from google calendar to Notion
- * @param {String} c_name Calendar name
- * @param {Boolean} fullSync Whenever or not to discard the old page token
- * @param {Set<String>}} ignored_eIds Event IDs to not act on.
+ * @param {string} c_name Calendar name
+ * @param {boolean} [fullSync=false] Whenever or not to discard the old page token
+ * @param {Set<string>} [ignored_eIds=new Set()] Event IDs to not act on.
  *
  * @throws {Error} If there is an error during the sync process.
  */
@@ -163,8 +184,11 @@ function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
   const properties = PropertiesService.getUserProperties();
   const syncToken = properties.getProperty("syncToken");
 
-  let pageToken = null;
+  /**
+   * @type {GoogleAppsScript.Calendar.Schema.Events}
+   */
   let events;
+  let pageToken = null;
 
   let options = {
     maxResults: MAX_PAGE_SIZE,
@@ -183,8 +207,13 @@ function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
   // Retrieve events one page at a time.
   do {
     options.pageToken = pageToken;
+    const calEvents = Calendar.Events
     try {
-      events = Calendar.Events.list(CALENDAR_IDS[c_name], options);
+      if (typeof calEvents === undefined) {
+        throw new Error("Calendar.Events is undefined");
+      } else {
+        events = calEvents.list(CALENDAR_IDS[c_name], options);
+      }
     } catch (e) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
@@ -219,7 +248,7 @@ function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
 /**
  * Determine if a gcal event needs to be updated, removed or added to the database.
  * If so, create a request that can be batched.
- * @param {CalendarEvent} event Google calendar event
+ * @param {GoogleAppsScript.Calendar.CalendarEvent} event Google calendar event
  * @param {String} eId Event ID
  *
  * @returns {String} Event ID if the event was modified, null otherwise.
@@ -227,8 +256,8 @@ function syncFromGCal(c_name, fullSync = false, ignored_eIds = new Set()) {
 
 /**
  * Determine if gcal events need to be updated, removed, or added to the database
- * @param {CalendarEvent[]} events Google calendar events
- * @param {Set[String]} ignored_eIds Event IDs to not act on.
+ * @param {GoogleAppsScript.Calendar.Schema.Events} events Google calendar events
+ * @param {Set<string>} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
   let requests = [];
@@ -321,9 +350,9 @@ function parseEvents(events, ignored_eIds) {
 /**
  * Update database entry with new event information
  * @param {CalendarEvent} event Modified Google calendar event
- * @param {String} page_id Page ID of database entry
- * @param {String[]} existing_tags Existing tags of the page to keep.
- * @param {Boolean} multi Whenever or not the update is meant for a multi-fetch
+ * @param {string} page_id Page ID of database entry
+ * @param {string[]} [existing_tags=[]] Existing tags of the page to keep.
+ * @param {boolean} [multi=true] Whenever or not the update is meant for a multi-fetch
  * @returns {*} request object if multi is true, fetch response if multi is false
  */
 function updateDatabaseEntry(event, page_id, existing_tags = [], multi = true) {
@@ -362,7 +391,7 @@ function createDatabaseUpdatePayload(properties, archive = false) {
  * @returns {Object} A request options dictionary.
  * */
 function createDatabaseUpdateParams(
-  page_id,
+  pageId,
   payload,
   multi = false,
   muteHttpExceptions = false
@@ -375,7 +404,7 @@ function createDatabaseUpdateParams(
   };
 
   if (multi) {
-    params["url"] = API_PAGES_URL + page_id;
+    params["url"] = API_PAGES_URL + pageId;
   }
   return params;
 }
@@ -424,7 +453,7 @@ function pushDatabaseUpdate(
 
 /**
  * Create a new database entry for the event
- * @param {CalendarEvent} event modified GCal event object
+ * @param {GoogleAppsScript.Calendar.CalendarEvent} event modified GCal event object
  * @returns {*} request object
  */
 function createDatabaseEntry(event) {
@@ -472,33 +501,24 @@ function checkNotionProperty(properties) {
  * Create a payload for fetching a Notion page based on the event ID.
  *
  * @param {string} eventId - The ID of the event to fetch.
- * @param {string|undefined} on_before_date - Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
- * @param {boolean} considerIST - Whenever or not to consider the ignore sync tag. Default is true.
+ * @param {boolean} [considerIST=true] - Whenever or not to consider the ignore sync tag. Default is true.
  *
- * @returns {Object} The payload for fetching the Notion page.
+ * @returns {Payload} The payload for fetching the Notion page.
  */
-function createPageFetchPayload(
-  eventId,
-  on_before_date = null,
-  considerIST = true
-) {
+function createPageFetchPayload(eventId, considerIST = true) {
+  /**
+   * @type {Payload}
+   */
   let payload = {
     filter: {
       and: [{ property: EVENT_ID_NOTION, rich_text: { equals: eventId } }],
     },
   };
 
-  if (on_before_date) {
-    payload["filter"]["and"].push({
-      property: LAST_SYNC_NOTION,
-      date: { on_or_before: new Date().toISOString(on_before_date) },
-    });
-  }
-
   if (considerIST) {
     payload["filter"]["and"].push({
       property: TAGS_NOTION,
-      multi_select: { does_not_contain: IGNORE_SYNC_TAG },
+      multi_select: { does_not_contain: IGNORE_SYNC_TAG_NAME },
     });
   }
 
@@ -547,23 +567,15 @@ function checkNotionPageFetchResponse(responseData, expectedId) {
 /**
  * Determine if a page exists for the event, and the page needs to be updated. Returns page response if found.
  * @param {CalendarEvent} event
- * @param {string|undefined} on_before_date Max value of last sync date to consider. If Null or not provided, will not restrict. Default is null.
  * @returns {*} Page response if found.
  */
-function getPageFromEvent(event, on_before_date = null) {
+function getPageFromEvent(event) {
   const url = getDatabaseURL();
   let payload = {
     filter: {
       and: [{ property: EVENT_ID_NOTION, rich_text: { equals: event.id } }],
     },
   };
-
-  if (on_before_date) {
-    payload["filter"]["and"].push({
-      property: LAST_SYNC_NOTION,
-      date: { on_or_before: new Date().toISOString(on_before_date) },
-    });
-  }
 
   const response_data = notionFetch(url, payload, "POST");
 
@@ -584,7 +596,7 @@ function getPageFromEvent(event, on_before_date = null) {
  * Retrieve notion page using page id
  * @deprecated This is not used anymore due to Notion API change on Aug 31, 2022, but kept for reference.
  * @param {Object} result
- * @param {String} property - notion property name key
+ * @param {string} property - notion property name key
  * @returns {Object} request response object
  */
 function getPageProperty(result, property) {
@@ -608,9 +620,9 @@ function getPageProperty(result, property) {
 
 /**
  * Interact with notion API
- * @param {String} url - url to send request to
+ * @param {string} url - url to send request to
  * @param {Object} payload_dict - payload to send with request
- * @param {String} method - method to use for request
+ * @param {string} method - method to use for request
  * @returns {Object} request response object
  */
 function notionFetch(url, payload_dict, method = "POST") {
@@ -671,7 +683,7 @@ function getRelativeDate(daysOffset, hour) {
 /**
  * Return notion JSON property object based on event data
  * @param {CalendarEvent} event modified GCal event object
- * @param {String[]} existing_tags - existing tags to add to event
+ * @param {string[]} existing_tags - existing tags to add to event
  * @returns {Object} notion property object
  */
 function convertToNotionProperty(event, existing_tags = []) {
@@ -763,8 +775,8 @@ function convertToNotionProperty(event, existing_tags = []) {
 
 /**
  * Return base notion JSON property object including generation time
- * @param {String} event_id - event id
- * @param {String} calendar_name - calendar key name
+ * @param {string} event_id - event id
+ * @param {string} calendar_name - calendar key name
  * @returns {Object} - base notion property object
  *  */
 function getBaseNotionProperties(event_id, calendar_name) {
@@ -970,9 +982,9 @@ function deleteCancelledEvents() {
 }
 
 /** Delete event from Google calendar
- * @param {String} event_id - Event id to delete
- * @param {String} calendar_id - Calendar id to delete event from
- * @returns {Boolean} - True if event was deleted, false if not
+ * @param {string} event_id - Event id to delete
+ * @param {string} calendar_id - Calendar id to delete event from
+ * @returns {boolean} - True if event was deleted, false if not
  */
 function deleteEvent(event_id, calendar_id) {
   console.log("Deleting event %s from gCal %s", event_id, calendar_id);
@@ -988,7 +1000,7 @@ function deleteEvent(event_id, calendar_id) {
 
 /** Determine if a page result has been updated recently
  * @param {Object} page_result - Page result from Notion database
- * @return {Boolean} - True if page has been updated recently, false otherwise
+ * @return {boolean} - True if page has been updated recently, false otherwise
  * */
 function isPageUpdatedRecently(page_result) {
   let last_sync_date = page_result.properties[LAST_SYNC_NOTION];
@@ -1000,7 +1012,7 @@ function isPageUpdatedRecently(page_result) {
 /**
  * Flattens rich text properties into a singular string.
  * @param {Object} rich_text_result - Rich text property to flatten
- * @return {String} - Flattened rich text
+ * @return {string} - Flattened rich text
  * */
 function flattenRichText(rich_text_result) {
   let plain_text = "";
@@ -1015,8 +1027,8 @@ function flattenRichText(rich_text_result) {
 /** Create event to Google calendar. Return event ID if successful
  * @param {Object} page - Page object from Notion database
  * @param {Object} event - Event object for gCal
- * @param {String} calendar_name - name of calendar to push event to
- * @return {String} - Event ID if successful, false otherwise
+ * @param {string} calendar_name - name of calendar to push event to
+ * @return {string} - Event ID if successful, false otherwise
  */
 function createEvent(page, event, calendar_name) {
   event.summary = event.summary || "";
@@ -1061,18 +1073,18 @@ function createEvent(page, event, calendar_name) {
 
 /** Update Google calendar event
  * @param {CalendarEvent} event - Modified event object for gCal
- * @param {String} page_id - Page ID of Notion page to update
- * @param {String} calendar_id - Calendar ID of calendar to update event from
- * @return {Boolean} True if successful, false otherwise
+ * @param {string} eventId - Event ID of Notion page to update
+ * @param {string} calendarId - Calendar ID of calendar to update event from
+ * @return {boolean} True if successful, false otherwise
  */
-function pushEventUpdate(event, event_id, calendar_id) {
+function pushEventUpdate(event, eventId, calendarId) {
   event.summary = event.summary || "";
   event.description = event.description || "";
   event.location = event.location || "";
 
   try {
-    let calendar = CalendarApp.getCalendarById(calendar_id);
-    let cal_event = calendar.getEventById(event_id);
+    let calendar = CalendarApp.getCalendarById(calendarId);
+    let cal_event = calendar.getEventById(eventId);
 
     cal_event.setDescription(event.description);
     cal_event.setTitle(event.summary);
@@ -1112,8 +1124,8 @@ class InvalidEventError extends Error {
  * Error thrown when the specified page is not found in the Notion database.
  * Could be harmless depending on the context.
  *
- * @param {String} message - Error message
- * @param {String} eventId - Event ID of the page that was not found
+ * @param {string} message - Error message
+ * @param {string} eventId - Event ID of the page that was not found
  */
 class PageNotFound extends Error {
   constructor(message, eventId) {
@@ -1125,9 +1137,9 @@ class PageNotFound extends Error {
 /**
  * Error thrown when an unexpected page is found when searching for a different page.
  *
- * @param {String} message - Error message
- * @param {String} foundId - Event ID of the page that was found
- * @param {String} expectedId - Event ID of the page that was expected
+ * @param {string} message - Error message
+ * @param {string} foundId - Event ID of the page that was found
+ * @param {string} expectedId - Event ID of the page that was expected
  */
 class UnexpectedPageFound extends Error {
   constructor(message, foundId, expectedId) {
