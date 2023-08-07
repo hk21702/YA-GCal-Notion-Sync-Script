@@ -181,7 +181,7 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
       if (
-        e.message === "Sync token is no longer valid, a full sync is required."
+        e.message === "Sync token is no longer valid, a full sync is required." || e.message === "API call to calendar.events.list failed with error: Sync token is no longer valid, a full sync is required."
       ) {
         properties.deleteProperty("syncToken");
         syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
