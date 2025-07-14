@@ -4,6 +4,7 @@ const TAGS_NOTION = "Tags";
 const LOCATION_NOTION = "Location";
 const DESCRIPTION_NOTION = "Description";
 
+// DON'T CHANGE ANY OF THESE PROPERTIES
 const EVENT_ID_NOTION = "Event ID";
 const CALENDAR_NAME_NOTION = "Calendar";
 const CALENDAR_ID_NOTION = "Calendar ID";
@@ -21,48 +22,107 @@ const IGNORE_SYNC_TAG_NAME = "Ignore Sync";
 const RELATIVE_MAX_DAY = 1825; // 5 years
 const RELATIVE_MIN_DAY = 30;
 
+// For syncing with multiple Notion databases, the script properties containing database URLs must end with this string.
+const DATABASE_URL_PROPERTY_SUFFIX = "DATABASE_URL"
+
+// List of Notion databases (represented as their corresponding script properties) that should NOT check for updates from Google Calendar,
+// i.e. updates can only go from Notion to Google Calendar but not the other way around.
+const DATABASES_IGNORING_GCAL_UPDATES = ["IGNORED_DATABASE_URL"];
+
+// The ID of the Notion DB that is currently being synced, set in `parseNotionProperties()`.
+// This is also stored as a `Tag` in all GCal events using the `GCAL_DB_TAG_KEY` to indicate which DB they belong to.
+let DATABASE_ID;
+const GCAL_DB_TAG_KEY = "NotionDB";
+
 function main() {
-  parseNotionProperties();
+  databases = retrieveDatabaseURLs();
 
-  if (DELETE_CANCELLED_EVENTS) {
-    deleteCancelledEvents();
-  }
+  // this loop contains all the code for syncing one particular database, so repeat it for each database
+  for (const db of databases) {
+    // update the global var indicating which database is being synced
+    console.log(`\nProcessing database with property key '${db}'`);
 
-  let modified_eIds = syncToGCal();
+    // set up the program to focus on this db
+    parseNotionProperties(db);
 
-  modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : new Set();
+    if (DELETE_CANCELLED_EVENTS) {
+      deleteCancelledEvents();
+    }
 
-  for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, false, modified_eIds);
-  }
+    // Sync from Notion to GCal
+    let modified_eIds = syncToGCal();
+
+    modified_eIds = IGNORE_RECENTLY_PUSHED ? modified_eIds : new Set();
+
+    // Sync from GCal to Notion, unless this database disables this functionality
+    if (DATABASES_IGNORING_GCAL_UPDATES.includes(db)) {
+      console.log(`Ignoring calendar sync from GCal to Notion for database '${db}' because it has been specifically ignored`);
+    } else {
+      for (const cal_name of Object.keys(CALENDAR_IDS)) {
+        syncFromGCal(cal_name, false, modified_eIds);
+      }
+    }
+
+    console.log(`Finished processing database with property key '${db}'`);
+  } // end of main processing loop
 }
 
 /**
- * Syncs all calendars from google calendar to Notion using a full sync.
+ * Syncs all calendars from Google Calendar to Notion using a full sync.
  *
  * -- Will discard the old page token and generate a new one. --
  * -- Will reset time min and time max to use the the current time as origin time --
  **/
 function fullSync() {
-  parseNotionProperties();
+  console.log("Preforming full sync. Page token, time min, and time max will be reset.");
 
-  console.log(
-    "Preforming full sync. Page token, time min, and time max will be reset."
-  );
+  databases = retrieveDatabaseURLs();
 
-  for (var c_name of Object.keys(CALENDAR_IDS)) {
-    syncFromGCal(c_name, true, new Set());
-  }
+  // this loop contains all the code for syncing one particular database, so repeat it for each database
+  for (const db of databases) {
+    // update the global var indicating which database is being synced
+    console.log(`\nProcessing database with property key '${db}'`);
+  
+    // set up the program to focus on this db
+    parseNotionProperties(db);
+
+    // Sync from GCal to Notion, unless this database disables this functionality
+    if (DATABASES_IGNORING_GCAL_UPDATES.includes(db)) {
+      console.log(`Ignoring calendar sync from GCal to Notion for database '${db}' because it has been specifically ignored`);
+    } else {
+      for (const cal_name of Object.keys(CALENDAR_IDS)) {
+        syncFromGCal(cal_name, true, new Set());
+      }
+    }
+    
+    console.log(`Finished processing database with property key '${db}'`);
+  } // end of main processing loop
 }
 
 /**
- * Sync to google calendar from Notion
- * @returns {Set[String]} - Array of event IDs that were modified through event creation
+ * Retrieves the URLs for each database stored in the script properties whose keys end with `DATABASE_URL_PROPERTY_SUFFIX`
+ * @returns {String[]} - Array of database URLs
+ */
+function retrieveDatabaseURLs() {
+  const properties = PropertiesService.getScriptProperties();
+  const databases = [];
+  for (const key of properties.getKeys()) {
+    if (key.endsWith(DATABASE_URL_PROPERTY_SUFFIX)) {
+      console.log(`Found database with property key '${key}'`);
+      databases.push(key);
+    }
+  }
+  return databases;
+}
+
+/**
+ * Syncs to Google Calendar from Notion
+ * @returns {Set[String]} - Array of GCal event IDs that were modified
  */
 function syncToGCal() {
-  console.log("[+GC] Syncing to Google Calendar.");
+  console.log("[+GCal] Syncing to Google Calendar.");
+
   // Get 100 pages in order of when they were last edited.
-  const url = getDatabaseURL();
   const payload = {
     sorts: [{ timestamp: "last_edited_time", direction: "descending" }],
     filter: {
@@ -72,13 +132,14 @@ function syncToGCal() {
       },
     },
   };
-  const response_data = notionFetch(url, payload, "POST");
+  const response_data = notionFetch(getDatabaseURL(), payload, "POST");
 
   let modified_eIds = new Set();
 
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
+    // Skip pages that haven't been updated since the last sync
     if (!isPageUpdatedRecently(result)) {
       continue;
     }
@@ -86,10 +147,7 @@ function syncToGCal() {
     let event = convertToGCalEvent(result);
 
     if (!event) {
-      console.log(
-        "[+GC] Skipping page %s because it is not in the correct format and or is missing required information.",
-        result.id
-      );
+      console.log(`[+GC] Skipping database entry "${flattenRichText(result.properties[NAME_NOTION].title) || result.id}" because it does not contain a date property.`);
       continue;
     }
 
@@ -97,67 +155,66 @@ function syncToGCal() {
     calendar_id = calendar_id ? calendar_id.name : null;
 
     let calendar_name = result.properties[CALENDAR_NAME_NOTION].select;
-    calendar_name = calendar_name ? calendar_name.name : null;
+    calendar_name = calendar_name ? calendar_name.name : DEFAULT_CALENDAR_NAME;
 
+    // Check if the event already exists in GCal
     if (CALENDAR_IDS[calendar_name] && calendar_id && event.id) {
       if (calendar_id === CALENDAR_IDS[calendar_name]) {
         // Update event in original calendar.
-        console.log("[+GC] Updating event %s in %s.", event.id, calendar_name);
+        console.log(`[+GC] Updating event "${event.summary}" (ID ${event.id}) in calendar "${calendar_name}".`);
         pushEventUpdate(event, event.id, calendar_id);
 
         continue;
       }
+
       // Event being moved to a new calendar - delete from old calendar and then create using calendar name
-      let modified_eId;
-      if (
-        deleteEvent(event.id, calendar_id) &&
-        (modified_eId = createEvent(result, event, calendar_name))
-      ) {
-        console.log("[+GC] Event %s moved to %s.", event.id, calendar_name);
+      let deleteSuccess = deleteEvent(event.id, calendar_id)
+      let modified_eId = createEvent(result, event, calendar_name)
+
+      if (deleteSuccess && modified_eId != false) {
+        console.log(`[+GC] Event "${event.summary}" (ID ${event.id}) moved to calendar "${calendar_name}".`);
         modified_eIds.add(modified_eId);
 
         continue;
       }
 
-      console.log(
-        "[+GC] Event %s failed to move to %s.",
-        event.id,
-        calendar_name
-      );
-
+      console.log(`[+GC] Failed to move event "${event.summary}" (ID ${event.id}) to calendar "${calendar_name}".`);
       continue;
     }
 
+    // Try to create the event in GCal based on the Notion calendar name field
     if (CALENDAR_IDS[calendar_name]) {
-      // attempt to create using calendar name
-      let modified_eId;
-      if ((modified_eId = createEvent(result, event, calendar_name))) {
-        console.log("[+GC] Event created in %s.", calendar_name);
+      let modified_eId = createEvent(result, event, calendar_name)
+      if (modified_eId != false) {
         modified_eIds.add(modified_eId);
+        console.log(`[+GC] Event "${event.summary}" (ID ${modified_eId}) created in calendar "${calendar_name}".`);
       }
       continue;
     }
-    // Calendar name not found in dictonary. Abort.
-    console.log(
-      "[+GC] Calendar name %s not found in dictionary. Aborting sync.",
-      calendar_name
-    );
+    
+    console.log(`[+GC] Calendar name "${calendar_name}" not found in dictionary. No action taken.`);
   }
+
+  if (modified_eIds.size == 0) {
+    console.log(`[+GCal] No GCal events needed to be modified or created.`);
+    return modified_eIds
+  }
+
   return modified_eIds;
 }
 
 /**
- * Syncs from google calendar to Notion
- * @param {String} c_name Calendar name
+ * Syncs from Google Calendar to Notion
+ * @param {String} cal_name Calendar name
  * @param {Boolean} fullSync Whenever or not to discard the old page token
  * @param {Set[String]} ignored_eIds Event IDs to not act on.
  */
-function syncFromGCal(c_name, fullSync, ignored_eIds) {
-  console.log("[+ND] Syncing from Google Calendar: %s", c_name);
+function syncFromGCal(cal_name, fullSync, ignored_eIds) {
+  console.log(`[+ND] Syncing from Google Calendar: "${cal_name}".`);
   let properties = PropertiesService.getUserProperties();
   let options = {
     maxResults: 100,
-    singleEvents: true, // allow recurring events
+    singleEvents: true, // Allow recurring events
   };
   let syncToken = properties.getProperty("syncToken");
 
@@ -173,10 +230,16 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
   // Retrieve events one page at a time.
   let events;
   let pageToken;
+  let calendar = CalendarApp.getCalendarById(CALENDAR_IDS[cal_name]);
   do {
     try {
       options.pageToken = pageToken;
-      events = Calendar.Events.list(CALENDAR_IDS[c_name], options);
+      events = Calendar.Events.list(CALENDAR_IDS[cal_name], options);
+
+      // Only look at events corresponding to the current DB.
+      // This is kinda scuffed because we want to use the web API for the sync token functionality,
+      // but we need the Apps Script API to get real CalendarEvent objects to check the DB tag.
+      events.items = events.items.filter((e) => calendar.getEventById(e.id).getTag(GCAL_DB_TAG_KEY) == DATABASE_ID);
     } catch (e) {
       // Check to see if the sync token was invalidated by the server;
       // if so, perform a full sync instead.
@@ -184,20 +247,20 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
         e.message === "Sync token is no longer valid, a full sync is required." || e.message === "API call to calendar.events.list failed with error: Sync token is no longer valid, a full sync is required."
       ) {
         properties.deleteProperty("syncToken");
-        syncFromGCal(CALENDAR_IDS[c_name], true, ignored_eIds);
+        syncFromGCal(CALENDAR_IDS[cal_name], true, ignored_eIds);
         return;
       } else {
-        throw new Error(e.message);
+        throw e;
       }
     }
 
-    events["c_name"] = c_name;
+    events["cal_name"] = cal_name;
 
     if (events.items && events.items.length === 0) {
-      console.log("[+ND] No events found. %s", c_name);
+      console.log(`[+ND] No relevant events found in calendar "${cal_name}".`);
       return;
     }
-    console.log("[+ND] Parsing new events. %s", c_name);
+    console.log(`[+ND] Parsing new events in calendar "${cal_name}".`);
     parseEvents(events, ignored_eIds);
 
     pageToken = events.nextPageToken;
@@ -207,61 +270,55 @@ function syncFromGCal(c_name, fullSync, ignored_eIds) {
 }
 
 /**
- * Determine if gcal events need to be updated, removed, or added to the database
- * @param {CalendarEvent[]} events Google calendar events
+ * Determine if GCal events need to be updated, removed, or added to the database
+ * @param {CalendarEvent[]} events Google Calendar events
  * @param {Set[String]} ignored_eIds Event IDs to not act on.
  */
 function parseEvents(events, ignored_eIds) {
   let requests = [];
+
   for (let i = 0; i < events.items.length; i++) {
     let event = events.items[i];
-    event["c_name"] = events["c_name"];
+
+    // When an event is deleted in GCal, it is still included in this array, but the summary (title) isn't defined.
+    // It also has `event.status` = "cancelled", but that might happen in other situations too
+    if (typeof event.summary === "undefined") {
+      continue;
+    }
+
+    event["cal_name"] = events["cal_name"];
+
     if (ignored_eIds.has(event.id)) {
-      console.log("[+ND] Ignoring event %s", event.id);
+      console.log(`[+ND] Ignoring event "${event.summary}" (ID ${event.id}).`);
       continue;
     }
     if (event.status === "cancelled") {
-      console.log("[+ND] Event %s was cancelled.", event.id);
       // Remove the event from the database
+      console.log(`[+ND] Event "${event.summary}" (ID ${event.id}) was cancelled.`);
       handleEventCancelled(event);
       continue;
     }
+
     let start;
     let end;
-
     if (event.start.date) {
       // All-day event.
       start = new Date(event.start.date);
       end = new Date(event.end.date);
-      console.log(
-        "[+ND] Event found %s %s (%s -- %s)",
-        event.id,
-        event.summary,
-        start.toLocaleDateString(),
-        end.toLocaleDateString()
-      );
+      console.log(`[+ND] Event found: "${event.summary}" (ID ${event.id}), (${start.toLocaleDateString()} -- ${end.toLocaleDateString()})`);
     } else {
       // Events that don't last all day; they have defined start times.
       start = event.start.dateTime;
       end = event.end.dateTime;
-      console.log(
-        "[+ND] Event found %s %s (%s)",
-        event.id,
-        event.summary,
-        start.toLocaleString()
-      );
+      console.log(`[+ND] Event found: "${event.summary}" (ID ${event.id}), (${start.toLocaleString()})`);
     }
     let page_response = getPageFromEvent(event);
 
     if (page_response) {
-      console.log(
-        "[+ND] Event %s database page %s exists already. Attempting update.",
-        event.id,
-        page_response.id
-      );
+      console.log(`[+ND] Event "${event.summary}" (ID ${event.id}) database page ${page_response.id} exists already. Attempting update.`);
       let tags = page_response.properties[TAGS_NOTION].multi_select;
       requests.push(
-        updateDatabaseEntry(event, page_response.id, tags || [])
+        updateDatabaseEntry(event, page_response.id, tags || [], false)
       );
 
       continue;
@@ -270,20 +327,16 @@ function parseEvents(events, ignored_eIds) {
 
     try {
       requests.push(createDatabaseEntry(event));
-    } catch (err) {
-      if ((err instanceof InvalidEventError) && SKIP_BAD_EVENTS) {
-        console.log(
-          "[+ND] Skipping creation of event %s due to invalid properties.",
-          event.id
-        );
-
+    } catch (e) {
+      if ((e instanceof InvalidEventError) && SKIP_BAD_EVENTS) {
+        console.log(`[+ND] Skipping creation of event "${event.summary}" (ID ${event.id}) due to invalid properties.`);
         continue;
       }
 
-      throw err;
+      throw e;
     }
   }
-  console.log("[+ND] Finished parsing page. Sending batch request.");
+  console.log(`[+ND] Finished parsing page. Sending batch request for ${requests.length} database entries.`);
 
   const responses = UrlFetchApp.fetchAll(requests);
 
@@ -302,8 +355,8 @@ function parseEvents(events, ignored_eIds) {
 }
 
 /**
- * Update database entry with new event information
- * @param {CalendarEvent} event Modified Google calendar event
+ * Update a database entry with new event information from a Google Calendar event
+ * @param {CalendarEvent} event Modified Google Calendar event
  * @param {String} page_id Page ID of database entry
  * @param {String[]} existing_tags Existing tags of the page to keep.
  * @param {Boolean} multi Whenever or not the update is meant for a multi-fetch
@@ -315,6 +368,7 @@ function updateDatabaseEntry(event, page_id, existing_tags = [], multi = true) {
 
   return pushDatabaseUpdate(properties, page_id, archive, multi);
 }
+
 /**
  * Push update to notion database for page
  * @param {Object} properties
@@ -323,12 +377,7 @@ function updateDatabaseEntry(event, page_id, existing_tags = [], multi = true) {
  * @param {Boolean} multi whenever or not to use single fetch, or return options for fetchAll
  * @returns {*} request object if multi, otherwise URL fetch response
  */
-function pushDatabaseUpdate(
-  properties,
-  page_id,
-  archive = false,
-  multi = false
-) {
+function pushDatabaseUpdate(properties, page_id, archive = false, multi = false) {
   const url = "https://api.notion.com/v1/pages/" + page_id;
   let payload = {};
   payload["properties"] = properties;
@@ -406,28 +455,31 @@ function checkNotionProperty(properties) {
  * @returns {*} Page response if found.
  */
 function getPageFromEvent(event, on_before_date = null) {
-  const url = getDatabaseURL();
   let payload = {
     filter: {
-      and: [{ property: EVENT_ID_NOTION, rich_text: { equals: event.id } }],
+      and: [
+        {
+          property: EVENT_ID_NOTION,
+          rich_text: {
+            equals: event.id
+          }
+        },
+      ],
     },
   };
 
   if (on_before_date) {
     payload["filter"]["and"].push({
       property: LAST_SYNC_NOTION,
-      date: { on_or_before: new Date().toISOString(on_before_date) },
+      date: { on_or_before: new Date(on_before_date).toISOString() },
     });
   }
 
-  const response_data = notionFetch(url, payload, "POST");
+  const response_data = notionFetch(getDatabaseURL(), payload, "POST");
 
   if (response_data.results.length > 0) {
     if (response_data.results.length > 1) {
-      console.log(
-        "Found multiple entries with event id %s. This should not happen. Only considering index zero entry.",
-        event.id
-      );
+      console.log(`Found multiple entries with event id ${event.id}. This should not happen. Only processing index zero entry.`);
     }
 
     return response_data.results[0];
@@ -443,7 +495,7 @@ function getPageFromEvent(event, on_before_date = null) {
  * @returns {Object} request response object
  */
 function getPageProperty(result, property) {
-  console.log("Warning. Using deprecated function getPageProperty.");
+  console.warn("Using deprecated function getPageProperty.");
   let page_id = result.id;
   try {
     let property_id = result.properties[property].id;
@@ -530,7 +582,7 @@ function getRelativeDate(daysOffset, hour) {
  * @returns {Object} notion property object
  */
 function convertToNotionProperty(event, existing_tags = []) {
-  let properties = getBaseNotionProperties(event.id, event.c_name);
+  let properties = getBaseNotionProperties(event.id, event.cal_name);
 
   properties[DESCRIPTION_NOTION] = {
     type: "rich_text",
@@ -656,7 +708,7 @@ function getBaseNotionProperties(event_id, calendar_name) {
 /**
  * Return GCal event object based on page properties
  * @param {Object} page_result - Notion page result object
- * @returns {Object} - GCal event object Return False if required properties not found
+ * @returns {Object} - GCal event object, or false if the date property is not found
  */
 function convertToGCalEvent(page_result) {
   let e_id = page_result.properties[EVENT_ID_NOTION].rich_text;
@@ -711,49 +763,49 @@ function convertToGCalEvent(page_result) {
 }
 
 /**
- * Parses Notion information from project properties and declares them into global variables
+ * Parses Notion information from project properties and declares them into global variables.
+ * @param {String} database_key - The key for the Property storing the current database's URL
  */
-function parseNotionProperties() {
+function parseNotionProperties(database_key) {
   let properties = PropertiesService.getScriptProperties();
   NOTION_TOKEN = properties.getProperty("NOTION_TOKEN");
 
   let reURLInformation =
     /^(([^@:\/\s]+):\/?)?\/?(([^@:\/\s]+)(:([^@:\/\s]+))?@)?([^@:\/\s]+)(:(\d+))?(((\/\w+)*\/)([\w\-\.]+[^#?\s]*)?(.*)?(#[\w\-]+)?)?$/;
 
-  let database_url = properties
-    .getProperty("DATABASE_ID")
-    .match(reURLInformation);
+  let database_url = properties.getProperty(database_key).match(reURLInformation);
   DATABASE_ID = database_url[13];
 }
 
 /**
- * Get notion page ID of corresponding gCal event. Returns null if no page found.
- * @param {CalendarEvent} event - Modiffied gCal event object
+ * Get notion page ID of corresponding GCal event. Returns null if no page found.
+ * @param {CalendarEvent} event - Modified GCal event object
  */
 function getPageId(event) {
-  const url = getDatabaseURL();
   const payload = {
     filter: {
       and: [
-        { property: EVENT_ID_NOTION, rich_text: { equals: event.id } },
+        {
+          property: EVENT_ID_NOTION,
+          rich_text: {
+            equals: event.id 
+          }
+        },
         {
           property: TAGS_NOTION,
           multi_select: {
-            does_not_contain: IGNORE_SYNC_TAG_NAME,
-          },
+            does_not_contain: IGNORE_SYNC_TAG_NAME
+          }
         },
       ],
     },
   };
 
-  const response_data = notionFetch(url, payload, "POST");
+  const response_data = notionFetch(getDatabaseURL(), payload, "POST");
 
   if (response_data.results.length > 0) {
     if (response_data.results.length > 1) {
-      console.log(
-        "Found multiple entries with event id %s. This should not happen. Only processing index zero entry.",
-        event.id
-      );
+      console.log(`Found multiple entries with event id ${event.id}. This should not happen. Only processing index zero entry.`);
     }
 
     return response_data.results[0].id;
@@ -762,8 +814,8 @@ function getPageId(event) {
 }
 
 /**
- * Deals with event cancelled from gCal side
- * @param {CalendarEvent} event - Modiffied gCal event object
+ * Deals with event cancelled from GCal side
+ * @param {CalendarEvent} event - Modified GCal event object
  */
 function handleEventCancelled(event) {
   const page_id = getPageId(event);
@@ -771,14 +823,15 @@ function handleEventCancelled(event) {
   if (page_id) {
     updateDatabaseEntry(event, page_id, [], false);
   } else {
-    console.log("Event %s not found in Notion database. Skipping.", event.id);
+    console.log(`Event "${event.summary}" (ID ${event.id}) not found in Notion database. Skipping.`);
   }
 }
 
-/** Delete events marked as cancelled in gcal */
+/**
+ * Delete events marked as cancelled in GCal
+ */
 function deleteCancelledEvents() {
   console.log("[-GCal] Deleting cancel tagged events from GCal");
-  const url = getDatabaseURL();
   const payload = {
     filter: {
       property: TAGS_NOTION,
@@ -788,25 +841,28 @@ function deleteCancelledEvents() {
       },
     },
   };
-  const response_data = notionFetch(url, payload, "POST");
+
+  const response_data = notionFetch(getDatabaseURL(), payload, "POST");
 
   for (let i = 0; i < response_data.results.length; i++) {
     let result = response_data.results[i];
 
-    if (isPageUpdatedRecently(result)) {
+    let event_id = result.properties[EVENT_ID_NOTION].rich_text;
+    event_id = flattenRichText(event_id);
+
+    if (isPageUpdatedRecently(result) && event_id) {
       try {
-        let event_id = result.properties[EVENT_ID_NOTION].rich_text;
         let calendar_id = result.properties[CALENDAR_ID_NOTION].select.name;
 
-        event_id = flattenRichText(event_id);
-
+        console.log(`[-GCal] Deleting event "${flattenRichText(result.properties[NAME_NOTION].title)}" (ID ${event_id}) from GCal because it is marked as cancelled in Notion.`);
         deleteEvent(event_id, calendar_id);
       } catch (e) {
         if (e instanceof TypeError) {
-          console.log("[-GCal] Error. Page missing calendar id or event ID");
+          console.error("[-GCal] Error. Page missing calendar ID or event ID.", e);
         } else {
           throw e;
         }
+
       } finally {
         ARCHIVE_CANCELLED_EVENTS
           ? pushDatabaseUpdate([], result.id, true)
@@ -816,27 +872,28 @@ function deleteCancelledEvents() {
   }
 }
 
-/** Delete event from Google calendar
+/** Delete event from Google Calendar
  * @param {String} event_id - Event id to delete
  * @param {String} calendar_id - Calendar id to delete event from
  * @returns {Boolean} - True if event was deleted, false if not
  */
 function deleteEvent(event_id, calendar_id) {
-  console.log("Deleting event %s from gCal %s", event_id, calendar_id);
+  console.log(`Deleting event with ID ${event_id} from Google Calendar "${calendar_id}".`);
   try {
     let calendar = CalendarApp.getCalendarById(calendar_id);
     calendar.getEventById(event_id).deleteEvent();
     return true;
   } catch (e) {
-    console.log(e);
+    console.error(e);
     return false;
   }
 }
 
-/** Determine if a page result has been updated recently
+/**
+ * Determine if a page result has been updated since the last recorded sync
  * @param {Object} page_result - Page result from Notion database
  * @return {Boolean} - True if page has been updated recently, false otherwise
- * */
+ */
 function isPageUpdatedRecently(page_result) {
   let last_sync_date = page_result.properties[LAST_SYNC_NOTION];
   last_sync_date = last_sync_date.date ? last_sync_date.date.start : 0;
@@ -859,9 +916,10 @@ function flattenRichText(rich_text_result) {
   return plain_text;
 }
 
-/** Create event to Google calendar. Return event ID if successful
+/**
+ * Create event to Google Calendar. Return event ID if successful.
  * @param {Object} page - Page object from Notion database
- * @param {Object} event - Event object for gCal
+ * @param {Object} event - Event object for GCal
  * @param {String} calendar_name - name of calendar to push event to
  * @return {String} - Event ID if successful, false otherwise
  */
@@ -885,19 +943,23 @@ function createEvent(page, event, calendar_name) {
   options.push({ description: event.description, location: event.location });
 
   let calendar = CalendarApp.getCalendarById(calendar_id);
+  let new_event_id;
   try {
     let new_event = event.all_day
       ? calendar.createAllDayEvent(...options)
       : calendar.createEvent(...options);
 
     new_event_id = new_event.getId().split("@")[0];
-  } catch (e) {
-    console.log("Failed to push new event to GCal. %s", e);
-    return false;
-  }
 
-  if (!new_event_id) {
-    console.log("Event %s not created in gCal.", event.summary);
+    if (!new_event_id) {
+      console.log(`Event "${event.summary}" not created in GCal.`);
+      return false;
+    }
+
+    // Set a tag indicating which Notion DB this event belongs to
+    new_event.setTag(GCAL_DB_TAG_KEY, DATABASE_ID);
+  } catch (e) {
+    console.error("Failed to push new event to GCal.", e);
     return false;
   }
 
@@ -906,8 +968,9 @@ function createEvent(page, event, calendar_name) {
   return new_event_id;
 }
 
-/** Update Google calendar event
- * @param {CalendarEvent} event - Modified event object for gCal
+/**
+ * Update a Google Calendar event
+ * @param {CalendarEvent} event - Modified event object for GCal
  * @param {String} page_id - Page ID of Notion page to update
  * @param {String} calendar_id - Calendar ID of calendar to update event from
  * @return {Boolean} True if successful, false otherwise
@@ -939,7 +1002,7 @@ function pushEventUpdate(event, event_id, calendar_id) {
     }
     return true;
   } catch (e) {
-    console.log("Failed to push event update to GCal. %s", e);
+    console.error("Failed to push event update to GCal.", e);
     return false;
   }
 }

@@ -1,1 +1,9 @@
-calendarIds.js
+# NPM
+node_modules/
+
+# Clasp private config files
+.clasp.json
+src/appsscript.json
+
+# Ignore for config reasons (see README for instructions to ignore local changes)
+src/calendarIds.gs
